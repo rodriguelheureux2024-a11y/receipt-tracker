@@ -66,57 +66,44 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me', auth, (req, res) => res.json({ id: req.user.id, name: req.user.name, email: req.user.email }));
 
 /* ── RECEIPT PROMPT ── */
-const PROMPT = `You are an expert receipt scanner. Read this receipt from TOP to BOTTOM and extract ALL purchased items.
+const PROMPT = `You are a receipt scanner. Your job is simple: find every line that contains a product name and a price, then list them.
 
-Return ONLY valid JSON — no explanation, no markdown.
+Return ONLY this JSON object (nothing else):
+{"store":"store name","date":"YYYY-MM-DD","total":0.00,"items":[{"name":"name as printed on receipt","price":0.00,"quantity":1,"category":"category"}]}
 
-{"store":"STORE NAME","date":"YYYY-MM-DD","total":87.22,"items":[{"name":"Full Product Name","price":5.79,"quantity":1,"category":"Category"}]}
+━━━ HOW TO FIND ITEMS ━━━
+A real item line looks like this:
+  PRODUCT NAME    $5.19 F
+  PRODUCT NAME    $10.49 F
 
-═══ STEP 1: IDENTIFY ITEM LINES ═══
-An item line looks like:  PRODUCT_NAME    $PRICE  [F]
-The price on that SAME LINE is what you paid for it. Capture it exactly.
+Copy the product name EXACTLY as it appears (abbreviations included, do not expand them).
+The price is the dollar amount on that same line.
 
-IMPORTANT — discounted items follow this pattern:
-  PRODUCT NAME     $4.02 F      ← THIS IS AN ITEM — include it with price $4.02
-  Reg $5.29                     ← skip (original price)
-  Savings ($1.27)               ← skip (discount amount)
-The item is STILL a real purchase even if followed by Reg/Savings lines!
+━━━ LINES TO SKIP (not items) ━━━
+Skip any line that starts with or contains:
+• "Reg $" or "Regular Price" → just the original price before discount
+• "Savings" or "Save $" or "Total Savings" → discount amount
+• "Qty X lb @" or "Tare Weight" → weight details for the item above
+• "Subtotal" "Net Sales" "Total" "Paid" "VISA" "Sold Items" → receipt summary
+• Lines with only a number and no product name
 
-SKIP these lines — they are NOT items:
-• "Reg $X" / "Regular Price $X" → skip (just shows original price)
-• "Savings ($X)" / "Save $X" / "Total Savings" → skip (discount info)
-• "Tare Weight X lb" → skip (packaging weight)
-• "Subtotal" / "Net Sales" / "Total" / "Paid" / "VISA" / "Sold Items" → skip
+━━━ SPECIAL CASES ━━━
+Weight items: the line "PRODUCT NAME $10.59 F" followed by "Qty 0.53 lb @ $19.99/lb"
+→ include the product with price 10.59. The "Qty X lb @" line below it is NOT a separate item.
 
-═══ STEP 2: WEIGHT-BASED ITEMS ═══
-Some items show:
-  PRODUCT NAME     $10.59 F
-  Qty 0.53 lb @ $19.99/lb
-The price is $10.59 (the number on the SAME LINE as the product name).
-The "Qty X lb @ $Y/lb" line is just info — the price is already on the item line.
+Quantity items: "Qty 2 $3.49 ea" below an item → set quantity=2, price=6.98 (2×3.49)
+"3 @ $1.00 ea" → quantity=3, price=3.00
 
-═══ STEP 3: QUANTITY ITEMS ═══
-"Qty 2 $3.49 ea" means quantity=2, price=6.98 (2×3.49).
-"3 @ $1.00 ea" means quantity=3, price=3.00.
-
-═══ STEP 4: DECODE ABBREVIATIONS ═══
-OG / ORG = Organic (just part of the name)
-BRM = Bob's Red Mill | 365WFM = 365 Whole Foods Market | NPA = Nature's Path
-WHL = Whole | GRN = Grain | UNBLCHD = Unbleached | BCKWHT = Buckwheat
-RST SLT = Roasted Salted | SNFLWR = Sunflower | SLI = Sliced
-CRL = Cereal | MILLET = Millet | COUSCOUS = Couscous | ELBOWS = Elbow Pasta
-
-═══ CATEGORIES ═══
+━━━ CATEGORIES ━━━
+Pick the best match:
 "Fruits" | "Légumes" | "Viandes & Poissons" | "Produits Laitiers" | "Boulangerie & Pâtisserie" | "Boissons" | "Épicerie Sèche" | "Surgelés" | "Hygiène & Beauté" | "Entretien Maison" | "Santé" | "Snacks & Confiseries" | "Autres"
 
-FLOUR/GRAIN/CEREAL/PASTA/NUTS/SEEDS/COUSCOUS/MILLET/TOFU → Épicerie Sèche
-MEAT/FISH/COD/CHICKEN/SALMON/BEEF → Viandes & Poissons
-ONION/GARLIC/TOMATO/GINGER/VEGETABLE → Légumes
-ORANGE/APPLE/FRUIT → Fruits
-MILK/YOGURT/CHEESE → Produits Laitiers
+Hints: FLOUR/GRAIN/CEREAL/PASTA/NUTS/ALMONDS/COUSCOUS/MILLET/TOFU/SEEDS → Épicerie Sèche
+COD/FISH/SALMON/BEEF/CHICKEN/FILLET → Viandes & Poissons
+ONION/GARLIC/TOMATO/GINGER/TOMATOES → Légumes
+ORANGE/APPLE/BERRY/FRUIT → Fruits
 
-IMPORTANT: Start from the very FIRST item at the TOP of the receipt. Do not skip any item.
-Date format: YYYY-MM-DD. Use ${new Date().toISOString().split('T')[0]} if not visible.`;
+Use date ${new Date().toISOString().split('T')[0]} if the receipt date is not visible.`;
 
 /* ── ANALYZE ── */
 app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
