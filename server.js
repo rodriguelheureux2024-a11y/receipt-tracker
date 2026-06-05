@@ -66,29 +66,51 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me', auth, (req, res) => res.json({ id: req.user.id, name: req.user.name, email: req.user.email }));
 
 /* ── RECEIPT PROMPT ── */
-const PROMPT = `You are a receipt data extraction expert. Read this receipt image very carefully.
+const PROMPT = `You are an expert receipt scanner. Read this receipt from TOP to BOTTOM and extract ALL purchased items.
 
-Return ONLY a valid JSON object — nothing else, no explanation.
+Return ONLY valid JSON — no explanation, no markdown.
 
-{"store":"STORE NAME","date":"YYYY-MM-DD","total":38.74,"items":[{"name":"Full Product Name","price":5.79,"quantity":1,"category":"Category"}]}
+{"store":"STORE NAME","date":"YYYY-MM-DD","total":87.22,"items":[{"name":"Full Product Name","price":5.79,"quantity":1,"category":"Category"}]}
 
-HOW TO READ THIS RECEIPT:
-Each purchased item appears as ONE LINE containing: [barcode number] [PRODUCT NAME] [tax code] [PRICE]
-- The price at the END of that same line = the price you paid for that item
-- "Regular Price $X.XX" = the old/original price — DO NOT use this, DO NOT include it as an item
-- "Save $X" / "6for$X" / "Savings" = discount info — skip entirely
-- "SUBTOTAL", "TAX", "TOTAL", "VISA CHARGE", "AUTH CODE" = skip
-- Letters after price (NF, F, T, WIC) = tax codes, not part of the name
+═══ STEP 1: IDENTIFY ITEM LINES ═══
+An item line looks like:  PRODUCT_NAME    $PRICE  [F]
+The price on that SAME LINE is what you paid for it. Capture it exactly.
 
-For quantities like "3 @ $1.00 ea": quantity=3, price=3.00 (the TOTAL for all 3)
+SKIP these — they are NOT items:
+• "Reg $X" / "Regular Price $X" → original price before discount, skip
+• "Savings ($X)" / "Save $X" / "Savings" → discount, skip
+• "Tare Weight X lb" → packaging weight, skip
+• "Subtotal" / "Total Savings" / "Net Sales" / "Total" / "Paid" / "VISA" → summary, skip
 
-CATEGORIES (use exactly):
+═══ STEP 2: WEIGHT-BASED ITEMS ═══
+Some items show:
+  PRODUCT NAME     $10.59 F
+  Qty 0.53 lb @ $19.99/lb
+The price is $10.59 (the number on the SAME LINE as the product name).
+The "Qty X lb @ $Y/lb" line is just info — the price is already on the item line.
+
+═══ STEP 3: QUANTITY ITEMS ═══
+"Qty 2 $3.49 ea" means quantity=2, price=6.98 (2×3.49).
+"3 @ $1.00 ea" means quantity=3, price=3.00.
+
+═══ STEP 4: DECODE ABBREVIATIONS ═══
+OG / ORG = Organic (just part of the name)
+BRM = Bob's Red Mill | 365WFM = 365 Whole Foods Market | NPA = Nature's Path
+WHL = Whole | GRN = Grain | UNBLCHD = Unbleached | BCKWHT = Buckwheat
+RST SLT = Roasted Salted | SNFLWR = Sunflower | SLI = Sliced
+CRL = Cereal | MILLET = Millet | COUSCOUS = Couscous | ELBOWS = Elbow Pasta
+
+═══ CATEGORIES ═══
 "Fruits" | "Légumes" | "Viandes & Poissons" | "Produits Laitiers" | "Boulangerie & Pâtisserie" | "Boissons" | "Épicerie Sèche" | "Surgelés" | "Hygiène & Beauté" | "Entretien Maison" | "Santé" | "Snacks & Confiseries" | "Autres"
 
-BRAND RECOGNITION:
-KASHI → Épicerie Sèche | CHOBANI → Produits Laitiers | CENTO → Épicerie Sèche | BARILLA/PASTA → Épicerie Sèche | LAURA'S LEAN → Viandes & Poissons | SIMPLY/TROPICANA → Boissons | CHIPS/DORITOS → Snacks & Confiseries
+FLOUR/GRAIN/CEREAL/PASTA/NUTS/SEEDS → Épicerie Sèche
+TOFU/MEAT/FISH/COD/CHICKEN → Viandes & Poissons
+ONION/GARLIC/TOMATO/GINGER/VEGETABLE → Légumes
+ORANGE/APPLE/FRUIT → Fruits
+MILK/YOGURT/CHEESE → Produits Laitiers
 
-Date format must be YYYY-MM-DD. Use ${new Date().toISOString().split('T')[0]} if not readable.`;
+IMPORTANT: Start from the very FIRST item at the TOP of the receipt. Do not skip any item.
+Date format: YYYY-MM-DD. Use ${new Date().toISOString().split('T')[0]} if not visible.`;
 
 /* ── ANALYZE ── */
 app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
