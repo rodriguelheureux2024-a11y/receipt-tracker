@@ -1,90 +1,116 @@
-const express = require('express');
-const multer  = require('multer');
-const Groq    = require('groq-sdk');
-const fs      = require('fs');
-const path    = require('path');
+const express  = require('express');
+const multer   = require('multer');
+const Groq     = require('groq-sdk');
+const bcrypt   = require('bcryptjs');
+const jwt      = require('jsonwebtoken');
+const fs       = require('fs');
+const path     = require('path');
+const crypto   = require('crypto');
 
 const app    = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 const groq   = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const JWT_SECRET   = process.env.JWT_SECRET || 'receiptiq-dev-secret-change-in-prod';
+const DATA_DIR     = path.join(__dirname, 'data');
+const USERS_FILE   = path.join(DATA_DIR, 'users.json');
+const REC_DIR      = path.join(DATA_DIR, 'receipts');
 
-const DATA_FILE = path.join(__dirname, 'data', 'receipts.json');
-if (!fs.existsSync(path.join(__dirname, 'data'))) fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
-if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, '[]');
+[DATA_DIR, REC_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
+if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, '[]');
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-function load()     { try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch { return []; } }
-function save(data) { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
+/* ── DATA HELPERS ── */
+const loadUsers = () => { try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); } catch { return []; } };
+const saveUsers = u  => fs.writeFileSync(USERS_FILE, JSON.stringify(u, null, 2));
+const loadRec   = id => { try { return JSON.parse(fs.readFileSync(path.join(REC_DIR, `${id}.json`), 'utf8')); } catch { return []; } };
+const saveRec   = (id, data) => fs.writeFileSync(path.join(REC_DIR, `${id}.json`), JSON.stringify(data, null, 2));
 
-const PROMPT = `You are a receipt analysis expert. Look carefully at this receipt image and extract ALL purchase data.
+/* ── AUTH MIDDLEWARE ── */
+function auth(req, res, next) {
+  const h = req.headers.authorization;
+  if (!h?.startsWith('Bearer ')) return res.status(401).json({ error: 'Non authentifié' });
+  try { req.user = jwt.verify(h.slice(7), JWT_SECRET); next(); }
+  catch { res.status(401).json({ error: 'Session expirée — reconnectez-vous' }); }
+}
 
-Return ONLY a valid JSON object — no markdown, no explanation, nothing else.
+/* ── AUTH ROUTES ── */
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name?.trim() || !email?.trim() || !password) return res.status(400).json({ error: 'Tous les champs sont requis' });
+    if (password.length < 6) return res.status(400).json({ error: 'Mot de passe trop court (6 caractères min)' });
+    const users = loadUsers();
+    if (users.find(u => u.email.toLowerCase() === email.toLowerCase())) return res.status(409).json({ error: 'Email déjà utilisé' });
+    const user = { id: crypto.randomUUID(), name: name.trim(), email: email.toLowerCase().trim(), password: await bcrypt.hash(password, 10), createdAt: new Date().toISOString() };
+    users.push(user);
+    saveUsers(users);
+    const token = jwt.sign({ id: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
-JSON format:
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const users = loadUsers();
+    const user = users.find(u => u.email.toLowerCase() === email?.toLowerCase().trim());
+    if (!user || !(await bcrypt.compare(password, user.password))) return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+    const token = jwt.sign({ id: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/auth/me', auth, (req, res) => res.json({ id: req.user.id, name: req.user.name, email: req.user.email }));
+
+/* ── RECEIPT PROMPT ── */
+const PROMPT = `You are a receipt OCR expert. Analyze this receipt image carefully and return a JSON object.
+
+RESPOND WITH VALID JSON ONLY — no markdown, no explanation.
+
 {
-  "store": "store name from receipt header",
+  "store": "exact store name from receipt",
   "date": "YYYY-MM-DD",
-  "total": 38.74,
+  "total": 0.00,
   "items": [
-    { "name": "Product name", "price": 5.79, "quantity": 1, "category": "category" }
+    { "name": "product name", "price": 0.00, "quantity": 1, "category": "category" }
   ]
 }
 
-HOW TO READ THE RECEIPT:
-- The store name is usually at the very top (logo or header text)
-- Each product line typically shows: barcode/SKU, product name, price
-- Lines with "NF", "F", "T", "WIC" after the price are tax codes — ignore them
-- Lines starting with "Regular Price", "Save$", "Savings", "You Saved" are discounts — DO NOT include as items
-- The TOTAL is the final amount paid (after discounts and taxes)
-- "SUBTOTAL", "TAX", "TOTAL" lines are summary lines — don't include as items
-- Visa/payment lines are not items
+READING RULES:
+- Store name: look at the very top of the receipt (logo text, header)
+- Each item line has: [barcode] PRODUCT_NAME [tax_code] $PRICE
+- Tax codes after price (NF, F, T, N, WIC) = NOT part of the name, ignore them
+- "Regular Price $X.XX" lines = old price, NOT an item — skip
+- "Save $X" / "6for$X" / "Savings" / discount lines = NOT items — skip
+- "SUBTOTAL", "TAX", "TOTAL", "VISA", "AUTH CODE" = NOT items — skip
+- Quantity: "3 @ $1.00 ea" means quantity=3 and price=3.00 (total for the line)
 
-CATEGORIES — pick exactly one:
-- "Fruits" → fresh fruits
-- "Légumes" → fresh vegetables
-- "Viandes & Poissons" → meat, fish, poultry, deli
-- "Produits Laitiers" → milk, yogurt, cheese, butter, eggs, dairy
-- "Boulangerie & Pâtisserie" → bread, pastries, bakery
-- "Boissons" → water, juice, soda, coffee, tea, alcohol
-- "Épicerie Sèche" → pasta, rice, canned goods, cereals, condiments, oil
-- "Surgelés" → frozen foods
-- "Hygiène & Beauté" → shampoo, soap, toothpaste, cosmetics
-- "Entretien Maison" → cleaning products, laundry, household
-- "Santé" → medicine, vitamins, supplements
-- "Snacks & Confiseries" → chips, candy, chocolate, cookies, snacks
-- "Autres" → anything that doesn't fit above
+CATEGORIES (use exact text):
+"Fruits" | "Légumes" | "Viandes & Poissons" | "Produits Laitiers" | "Boulangerie & Pâtisserie" | "Boissons" | "Épicerie Sèche" | "Surgelés" | "Hygiène & Beauté" | "Entretien Maison" | "Santé" | "Snacks & Confiseries" | "Autres"
 
-IMPORTANT RULES:
-- Include EVERY product line (not discounts, not totals)
-- "KASHI" → "Épicerie Sèche" (cereal brand)
-- "CHOBANI" → "Produits Laitiers" (yogurt brand)
-- "GO PASTA" → "Épicerie Sèche"
-- "POP FRUIT" → "Snacks & Confiseries" or "Fruits"
-- "LAURA'S LEAN" → "Viandes & Poissons" (beef brand)
-- "SIMPLY BEVERA" → "Boissons"
-- For quantities like "3 @ $1.00 ea" → quantity=3, price=3.00
-- date format must be YYYY-MM-DD (use ${new Date().toISOString().split('T')[0]} if not visible)`;
+BRAND GUIDE:
+KASHI=Épicerie Sèche | CHOBANI=Produits Laitiers | GO PASTA/BARILLA/PANZANI=Épicerie Sèche | LAURA'S LEAN/GROUND BEEF=Viandes & Poissons | SIMPLY/TROPICANA/OJ=Boissons | CHIPS/DORITOS/LAYS=Snacks & Confiseries | TIDE/DAWN/LYSOL=Entretien Maison | ADVIL/TYLENOL=Santé | YOGURT/MILK/CHEESE=Produits Laitiers | APPLE/BANANA/ORANGE=Fruits | CARROT/LETTUCE/TOMATO=Légumes
 
-app.post('/api/analyze', upload.single('image'), async (req, res) => {
+Return today's date ${new Date().toISOString().split('T')[0]} if date not visible.`;
+
+/* ── ANALYZE ── */
+app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
   try {
     let imgData, mediaType;
     if (req.file) {
-      imgData   = req.file.buffer.toString('base64');
-      mediaType = req.file.mimetype;
+      imgData = req.file.buffer.toString('base64'); mediaType = req.file.mimetype;
     } else if (req.body.imageBase64) {
       const m = req.body.imageBase64.match(/^data:([^;]+);base64,(.+)$/);
-      if (m) { mediaType = m[1]; imgData = m[2]; }
-      else   { mediaType = 'image/jpeg'; imgData = req.body.imageBase64; }
-    } else {
-      return res.status(400).json({ error: 'Aucune image fournie' });
-    }
+      imgData = m ? m[2] : req.body.imageBase64; mediaType = m ? m[1] : 'image/jpeg';
+    } else return res.status(400).json({ error: 'Aucune image fournie' });
 
     const response = await groq.chat.completions.create({
       model: 'meta-llama/llama-4-scout-17b-16e-instruct',
       max_tokens: 3000,
       temperature: 0.1,
+      response_format: { type: 'json_object' },
       messages: [{
         role: 'user',
         content: [
@@ -95,34 +121,29 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     });
 
     let text = response.choices[0].message.content.trim();
-    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-    // Remove any text before the first {
-    const start = text.indexOf('{');
-    const end   = text.lastIndexOf('}');
-    if (start !== -1 && end !== -1) text = text.slice(start, end + 1);
-
     const data = JSON.parse(text);
     res.json({ success: true, data });
-
-  } catch (err) {
-    console.error('analyze error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+  } catch (e) {
+    console.error('analyze error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
-app.post('/api/receipts', (req, res) => {
-  const receipts = load();
-  const receipt  = { ...req.body, id: Date.now().toString(), createdAt: new Date().toISOString() };
-  receipts.push(receipt);
-  save(receipts);
-  res.json({ success: true, data: receipt });
+/* ── RECEIPTS ── */
+app.post('/api/receipts', auth, (req, res) => {
+  const list = loadRec(req.user.id);
+  const rec  = { ...req.body, id: Date.now().toString(), createdAt: new Date().toISOString() };
+  list.push(rec);
+  saveRec(req.user.id, list);
+  res.json({ success: true, data: rec });
 });
 
-app.get('/api/receipts',      (_req, res) => res.json(load()));
-app.delete('/api/receipts/:id', (req, res) => { save(load().filter(r => r.id !== req.params.id)); res.json({ success: true }); });
+app.get('/api/receipts',        auth, (req, res) => res.json(loadRec(req.user.id)));
+app.delete('/api/receipts/:id', auth, (req, res) => { saveRec(req.user.id, loadRec(req.user.id).filter(r => r.id !== req.params.id)); res.json({ success: true }); });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`\n✅ ReceiptIQ → http://localhost:${PORT}`);
-  if (!process.env.GROQ_API_KEY) console.warn('⚠️  GROQ_API_KEY manquante → https://console.groq.com/keys');
+  console.log(`\n✅ ReceiptIQ v2 → http://localhost:${PORT}`);
+  if (!process.env.GROQ_API_KEY)  console.warn('⚠️  GROQ_API_KEY manquante');
+  if (!process.env.JWT_SECRET)    console.warn('⚠️  JWT_SECRET non défini (utilise la valeur par défaut)');
 });
