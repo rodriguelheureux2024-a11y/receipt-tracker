@@ -61,7 +61,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'Aucune image fournie' });
     }
 
-    const model  = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model  = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
     const result = await model.generateContent([
       { inlineData: { mimeType: mediaType, data: imgData } },
       PROMPT
