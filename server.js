@@ -1,12 +1,12 @@
 const express = require('express');
 const multer  = require('multer');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const fs   = require('fs');
-const path = require('path');
+const Groq    = require('groq-sdk');
+const fs      = require('fs');
+const path    = require('path');
 
 const app    = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
-const genAI  = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const groq   = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const DATA_FILE = path.join(__dirname, 'data', 'receipts.json');
 
@@ -45,7 +45,7 @@ Règles :
 - quantity = 1 si non précisé
 - Réponds UNIQUEMENT avec le JSON, rien d'autre`;
 
-// Analyze (does NOT save — client confirms)
+// Analyze
 app.post('/api/analyze', upload.single('image'), async (req, res) => {
   try {
     let imgData, mediaType;
@@ -61,13 +61,22 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'Aucune image fournie' });
     }
 
-    const model  = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-8b' });
-    const result = await model.generateContent([
-      { inlineData: { mimeType: mediaType, data: imgData } },
-      PROMPT
-    ]);
+    const response = await groq.chat.completions.create({
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      max_tokens: 2048,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image_url',
+            image_url: { url: `data:${mediaType};base64,${imgData}` }
+          },
+          { type: 'text', text: PROMPT }
+        ]
+      }]
+    });
 
-    let text = result.response.text().trim();
+    let text = response.choices[0].message.content.trim();
     text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 
     const data = JSON.parse(text);
@@ -100,8 +109,8 @@ app.delete('/api/receipts/:id', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n✅ ReceiptIQ démarré → http://localhost:${PORT}`);
-  if (!process.env.GOOGLE_API_KEY) {
-    console.warn('\n⚠️  ATTENTION : variable GOOGLE_API_KEY non définie !');
-    console.warn('   Obtenez une clé gratuite sur : https://aistudio.google.com/app/apikey\n');
+  if (!process.env.GROQ_API_KEY) {
+    console.warn('\n⚠️  ATTENTION : variable GROQ_API_KEY non définie !');
+    console.warn('   Obtenez une clé gratuite sur : https://console.groq.com/keys\n');
   }
 });
