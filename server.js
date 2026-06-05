@@ -140,52 +140,33 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
       if (status !== 'Processing') break;
     }
 
-    // ── Step 3: Log full response to understand structure ──
-    const fullStr = JSON.stringify(pollData);
-    console.log('MINDEE FULL RESPONSE:', fullStr.slice(0, 2000));
-
-    // Try every possible path
-    const result = pollData?.job?.inference?.result
-                || pollData?.job?.inference
-                || pollData?.job?.result?.inference?.result
-                || pollData?.job?.result
-                || pollData?.inference?.result
-                || pollData?.inference
-                || pollData?.result
-                || pollData;
-
-    let fields = result?.fields
-              || result?.prediction
-              || pollData?.job?.inference?.result?.fields
-              || pollData?.job?.result?.fields
-              || null;
-
-    if (!fields || typeof fields !== 'object' || Object.keys(fields).length === 0) {
-      console.error('Could not find fields. Keys at root:', Object.keys(pollData || {}));
-      console.error('Keys in job:', Object.keys(pollData?.job || {}));
+    // ── Step 3: Extract from confirmed structure ──
+    // Response: { inference: { result: { fields: { supplier_name, date, total_amount, line_items: { items: [] } } } } }
+    const fields = pollData?.inference?.result?.fields;
+    if (!fields) {
+      console.error('No fields. pollData keys:', Object.keys(pollData || {}));
       throw new Error('Impossible de récupérer les données du ticket');
     }
 
-    // ── Step 3: Parse fields ──
-    const store = fields.supplier_name?.value || fields.store_name?.value || 'Magasin inconnu';
+    const store = fields.supplier_name?.value || 'Magasin inconnu';
 
     let date = new Date().toISOString().split('T')[0];
-    const rawDate = fields.date?.value;
-    if (rawDate) {
-      try { const d = new Date(rawDate); if (!isNaN(d)) date = d.toISOString().split('T')[0]; } catch {}
+    if (fields.date?.value) {
+      try { const d = new Date(fields.date.value); if (!isNaN(d)) date = d.toISOString().split('T')[0]; } catch {}
     }
 
-    const total = parseFloat(fields.total_amount?.value ?? fields.total?.value ?? 0) || 0;
+    const total = parseFloat(fields.total_amount?.value ?? 0) || 0;
 
-    const rawItems = fields.line_items?.values || fields.line_items || [];
+    // line_items.items[].fields.{ description.value, unit_price.value, total_price.value, quantity.value }
+    const rawItems = fields.line_items?.items || [];
     let items = rawItems
-      .filter(i => (i.description?.value || i.description)?.trim())
-      .map(i => {
-        const name  = (i.description?.value || i.description || '').trim();
-        const price = parseFloat(i.total_amount?.value ?? i.unit_price?.value ?? i.total_amount ?? i.unit_price ?? 0) || 0;
-        const qty   = parseFloat(i.quantity?.value ?? i.quantity ?? 1) || 1;
-        return { name, price, quantity: qty, category: categorize(name) };
-      })
+      .filter(i => i.fields?.description?.value?.trim())
+      .map(i => ({
+        name:     i.fields.description.value.trim(),
+        price:    parseFloat(i.fields.total_price?.value ?? i.fields.unit_price?.value ?? 0) || 0,
+        quantity: parseFloat(i.fields.quantity?.value ?? 1) || 1,
+        category: categorize(i.fields.description.value),
+      }))
       .filter(i => i.name.length > 0);
 
     if (items.length === 0) {
