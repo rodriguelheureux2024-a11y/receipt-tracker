@@ -18,6 +18,13 @@ const REC_DIR      = path.join(DATA_DIR, 'receipts');
 [DATA_DIR, REC_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
 if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, '[]');
 
+/* ── TEMPORARY ADMIN RESET (remove after use) ── */
+app.get('/api/admin/reset-all', (req, res) => {
+  fs.writeFileSync(USERS_FILE, '[]');
+  fs.readdirSync(REC_DIR).forEach(f => fs.unlinkSync(path.join(REC_DIR, f)));
+  res.send('✅ Toutes les données ont été effacées. Vous pouvez créer un nouveau compte.');
+});
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
