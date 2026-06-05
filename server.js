@@ -71,13 +71,17 @@ const PROMPT = `You are a receipt scanner. Your job is simple: find every line t
 Return ONLY this JSON object (nothing else):
 {"store":"store name","date":"YYYY-MM-DD","total":0.00,"items":[{"name":"name as printed on receipt","price":0.00,"quantity":1,"category":"category"}]}
 
+━━━ GOLDEN RULES ━━━
+1. On every item line: the NUMBER ON THE RIGHT is ALWAYS the price for that item. Always.
+2. The number at the BOTTOM RIGHT of the receipt (next to "Total" or "TOTAL") is the grand total.
+3. Copy the product name EXACTLY as printed — do not change or expand abbreviations.
+
 ━━━ HOW TO FIND ITEMS ━━━
 A real item line looks like this:
   PRODUCT NAME    $5.19 F
   PRODUCT NAME    $10.49 F
 
-Copy the product name EXACTLY as it appears (abbreviations included, do not expand them).
-The price is the dollar amount on that same line.
+The number on the RIGHT side of each item line = the price. Always trust the right-side number.
 
 ━━━ LINES TO SKIP (not items) ━━━
 Skip any line that starts with or contains:
