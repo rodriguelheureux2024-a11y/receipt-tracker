@@ -383,6 +383,74 @@ body {
 .empty-state h3 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
 .empty-state p  { color: var(--muted); margin-bottom: 24px; }
 
+/* ===== EDIT ROWS ===== */
+.edit-hint {
+  font-size: 13px; color: var(--green-d); background: var(--green-l);
+  border-radius: var(--r-sm); padding: 8px 14px; margin-bottom: 14px;
+  font-weight: 500;
+}
+
+.rh-fields { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.rh-store-input, .rh-date-input {
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 6px 10px; font-size: 15px; font-family: inherit;
+  color: var(--txt); background: var(--bg); width: 100%;
+}
+.rh-store-input { font-size: 18px; font-weight: 700; }
+.rh-store-input:focus, .rh-date-input:focus {
+  outline: none; border-color: var(--green); background: #fff;
+}
+
+.edit-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.edit-row:last-of-type { border-bottom: none; }
+
+.edit-cat {
+  flex: 0 0 auto; max-width: 180px; min-width: 120px;
+  padding: 5px 8px; border: 1px solid var(--border);
+  border-radius: var(--r-sm); font-size: 13px; font-family: inherit;
+  background: var(--bg); color: var(--txt); cursor: pointer;
+}
+.edit-cat:focus { outline: none; border-color: var(--green); }
+
+.edit-name {
+  flex: 1; min-width: 120px;
+  padding: 5px 8px; border: 1px solid var(--border);
+  border-radius: var(--r-sm); font-size: 13px; font-family: inherit;
+  color: var(--txt); background: var(--bg);
+}
+.edit-name:focus { outline: none; border-color: var(--green); background: #fff; }
+
+.edit-qty-price {
+  display: flex; align-items: center; gap: 4px;
+  flex-shrink: 0;
+}
+.edit-qty, .edit-price {
+  width: 60px; padding: 5px 6px;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  font-size: 13px; font-family: inherit; text-align: right;
+  color: var(--txt); background: var(--bg);
+}
+.edit-price { width: 72px; }
+.edit-qty:focus, .edit-price:focus { outline: none; border-color: var(--green); background: #fff; }
+.edit-x, .edit-eur { font-size: 12px; color: var(--muted); }
+
+.edit-del {
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 16px; padding: 4px 6px;
+  border-radius: 6px; transition: var(--ease); flex-shrink: 0;
+}
+.edit-del:hover { background: #fef2f2; color: var(--red); }
+
+.edit-add-row {
+  padding: 10px 12px;
+  border-top: 1px dashed var(--border);
+}
+.btn-sm { padding: 6px 14px; font-size: 13px; }
+
 /* ===== TOAST ===== */
 .toast {
   position: fixed; bottom: 24px; right: 24px;

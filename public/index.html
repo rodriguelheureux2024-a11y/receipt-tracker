@@ -74,15 +74,16 @@
       <!-- Results -->
       <div class="results-box" id="resultsBox" hidden>
         <div class="receipt-head">
-          <div>
-            <div class="rh-store" id="rStore">Magasin</div>
-            <div class="rh-date"  id="rDate">Date</div>
+          <div class="rh-fields">
+            <input class="rh-store-input" id="rStore" placeholder="Nom du magasin">
+            <input class="rh-date-input"  id="rDate"  type="date">
           </div>
           <div class="rh-total-block">
-            <span class="rh-total-lbl">TOTAL</span>
-            <span class="rh-total"    id="rTotal">0,00 €</span>
+            <span class="rh-total-lbl">TOTAL CALCULÉ</span>
+            <span class="rh-total" id="rTotal">0,00 €</span>
           </div>
         </div>
+        <p class="edit-hint">✏️ Tout est modifiable — corrigez les erreurs avant d'enregistrer</p>
         <div id="rCategories"></div>
         <div class="row-center gap-12 mt-24">
           <button class="btn btn-outline" id="discardBtn">✕ Annuler</button>
