@@ -99,7 +99,8 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
     const MINDEE_MODEL_ID = 'fee72ca6-432d-4e5f-afc4-0fbaa2a0e518';
     const apiKey = (process.env.MINDEE_API_KEY || '').trim();
     console.log('Mindee key prefix:', apiKey.slice(0, 6), '| length:', apiKey.length);
-    const AUTH = `Token ${apiKey}`;
+    // Mindee v2 uses the key directly as the Authorization header value
+    const AUTH = apiKey;
     const form = new FormData();
     form.append('document', imgBuffer, { filename: 'receipt.jpg', contentType: 'image/jpeg' });
     form.append('model_id', MINDEE_MODEL_ID);
