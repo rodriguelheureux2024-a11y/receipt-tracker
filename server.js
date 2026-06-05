@@ -76,11 +76,17 @@ Return ONLY valid JSON — no explanation, no markdown.
 An item line looks like:  PRODUCT_NAME    $PRICE  [F]
 The price on that SAME LINE is what you paid for it. Capture it exactly.
 
-SKIP these — they are NOT items:
-• "Reg $X" / "Regular Price $X" → original price before discount, skip
-• "Savings ($X)" / "Save $X" / "Savings" → discount, skip
-• "Tare Weight X lb" → packaging weight, skip
-• "Subtotal" / "Total Savings" / "Net Sales" / "Total" / "Paid" / "VISA" → summary, skip
+IMPORTANT — discounted items follow this pattern:
+  PRODUCT NAME     $4.02 F      ← THIS IS AN ITEM — include it with price $4.02
+  Reg $5.29                     ← skip (original price)
+  Savings ($1.27)               ← skip (discount amount)
+The item is STILL a real purchase even if followed by Reg/Savings lines!
+
+SKIP these lines — they are NOT items:
+• "Reg $X" / "Regular Price $X" → skip (just shows original price)
+• "Savings ($X)" / "Save $X" / "Total Savings" → skip (discount info)
+• "Tare Weight X lb" → skip (packaging weight)
+• "Subtotal" / "Net Sales" / "Total" / "Paid" / "VISA" / "Sold Items" → skip
 
 ═══ STEP 2: WEIGHT-BASED ITEMS ═══
 Some items show:
@@ -103,8 +109,8 @@ CRL = Cereal | MILLET = Millet | COUSCOUS = Couscous | ELBOWS = Elbow Pasta
 ═══ CATEGORIES ═══
 "Fruits" | "Légumes" | "Viandes & Poissons" | "Produits Laitiers" | "Boulangerie & Pâtisserie" | "Boissons" | "Épicerie Sèche" | "Surgelés" | "Hygiène & Beauté" | "Entretien Maison" | "Santé" | "Snacks & Confiseries" | "Autres"
 
-FLOUR/GRAIN/CEREAL/PASTA/NUTS/SEEDS → Épicerie Sèche
-TOFU/MEAT/FISH/COD/CHICKEN → Viandes & Poissons
+FLOUR/GRAIN/CEREAL/PASTA/NUTS/SEEDS/COUSCOUS/MILLET/TOFU → Épicerie Sèche
+MEAT/FISH/COD/CHICKEN/SALMON/BEEF → Viandes & Poissons
 ONION/GARLIC/TOMATO/GINGER/VEGETABLE → Légumes
 ORANGE/APPLE/FRUIT → Fruits
 MILK/YOGURT/CHEESE → Produits Laitiers
