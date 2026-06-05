@@ -97,10 +97,17 @@ body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg);color:var
 .upload-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
 .upload-hint{margin-top:18px!important;font-size:12px;color:var(--muted)}
 
-/* ══ PREVIEW ══ */
+/* ══ PREVIEW MULTI-PHOTO ══ */
 .preview-box{max-width:580px;margin:0 auto;text-align:center}
-.preview-img-wrap{background:#fff;border-radius:var(--r);overflow:hidden;box-shadow:var(--sh-lg);display:inline-block;max-width:100%}
-#previewImg{display:block;max-width:100%;max-height:400px;object-fit:contain}
+
+.multi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:12px}
+.multi-photo{position:relative;border-radius:var(--r-sm);overflow:hidden;aspect-ratio:3/4;background:#000}
+.multi-photo img{width:100%;height:100%;object-fit:cover;display:block}
+.multi-badge{position:absolute;top:6px;left:6px;background:var(--green);color:#fff;font-size:11px;font-weight:700;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.multi-del{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.55);color:#fff;border:none;border-radius:50%;width:22px;height:22px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;transition:var(--ease)}
+.multi-del:hover{background:var(--red)}
+.multi-add{display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap;justify-content:center}
+.multi-hint{font-size:12px;color:var(--muted)}
 
 /* ══ LOADING ══ */
 .loading-box{text-align:center;padding:80px 20px}

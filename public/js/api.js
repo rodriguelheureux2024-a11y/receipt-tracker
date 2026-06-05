@@ -17,9 +17,11 @@ const API = {
   me: () => API._req('/api/auth/me'),
 
   /* RECEIPTS */
-  analyze: async imageBase64 => {
-    const r = await API._req('/api/analyze', { method: 'POST', body: JSON.stringify({ imageBase64 }) });
-    return r.data; // unwrap nested { success, data: {...} }
+  analyze: async images => {
+    // Accept single base64 string or array
+    const payload = Array.isArray(images) ? { images } : { images: [images] };
+    const r = await API._req('/api/analyze', { method: 'POST', body: JSON.stringify(payload) });
+    return r.data;
   },
   save: async data => {
     const r = await API._req('/api/receipts', { method: 'POST', body: JSON.stringify(data) });

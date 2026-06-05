@@ -105,15 +105,20 @@
           </div>
           <p class="upload-hint">JPG · PNG · HEIC — max 20 Mo</p>
         </div>
-        <input type="file" id="fileInput" accept="image/*" hidden>
+        <input type="file" id="fileInput"   accept="image/*" hidden>
         <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+        <input type="file" id="addFileInput" accept="image/*" hidden>
       </div>
 
-      <!-- Preview -->
+      <!-- Preview (multi-photos) -->
       <div class="preview-box" id="previewBox" hidden>
-        <div class="preview-img-wrap"><img id="previewImg" alt="Aperçu"></div>
+        <div class="multi-grid" id="multiGrid"></div>
+        <div class="multi-add" id="multiAdd">
+          <button class="btn btn-outline btn-sm" id="addPhotoBtn">📷 Ajouter une photo</button>
+          <span class="multi-hint">Pour les longs tickets — max 4 photos</span>
+        </div>
         <div class="row-center gap-12 mt-20">
-          <button class="btn btn-outline" id="changeBtn">↩ Changer</button>
+          <button class="btn btn-outline" id="changeBtn">↩ Recommencer</button>
           <button class="btn btn-primary btn-lg" id="analyzeBtn">🔍 Analyser le ticket</button>
         </div>
       </div>
@@ -178,6 +183,12 @@
         <h3>Aucune donnée pour le moment</h3>
         <p>Scannez votre premier ticket pour voir vos statistiques</p>
         <button class="btn btn-primary" onclick="App.switchTab('scan')">📷 Scanner un ticket</button>
+      </div>
+      <div class="empty-state" id="dashPeriodEmpty" hidden>
+        <div class="empty-icon">📅</div>
+        <h3>Aucun ticket pour cette période</h3>
+        <p>Vos tickets existent mais pas pour la période sélectionnée.</p>
+        <button class="btn btn-outline" onclick="App.switchPeriod('all')">Voir tous mes tickets</button>
       </div>
       <div id="dashContent">
         <div class="stats-grid">

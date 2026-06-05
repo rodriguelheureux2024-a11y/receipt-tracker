@@ -19,7 +19,7 @@ const Auth = {
 
 /* ══ APP ══ */
 const App = {
-  receipts: [], period: 'month', _imgBase64: null, _editData: null,
+  receipts: [], period: 'month', _images: [], _editData: null,
 
   async init() {
     this._bindAuthUI();
@@ -118,41 +118,70 @@ const App = {
   /* ── SCAN ── */
   _bindScan() {
     const area = document.getElementById('uploadArea');
-    const fi = document.getElementById('fileInput');
-    const ci = document.getElementById('cameraInput');
+    const fi   = document.getElementById('fileInput');
+    const ci   = document.getElementById('cameraInput');
+    const ai   = document.getElementById('addFileInput');
     document.getElementById('uploadBtn').addEventListener('click', e => { e.stopPropagation(); fi.click(); });
     document.getElementById('cameraBtn').addEventListener('click', e => { e.stopPropagation(); ci.click(); });
-    fi.addEventListener('change', e => this._onFile(e.target.files[0]));
-    ci.addEventListener('change', e => this._onFile(e.target.files[0]));
+    document.getElementById('addPhotoBtn').addEventListener('click', () => ai.click());
+    fi.addEventListener('change',  e => this._onFile(e.target.files[0], true));
+    ci.addEventListener('change',  e => this._onFile(e.target.files[0], true));
+    ai.addEventListener('change',  e => this._onFile(e.target.files[0], false));
     area.addEventListener('click', () => fi.click());
     area.addEventListener('dragover',  e => { e.preventDefault(); area.classList.add('drag-over'); });
     area.addEventListener('dragleave', () => area.classList.remove('drag-over'));
-    area.addEventListener('drop', e => { e.preventDefault(); area.classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (f?.type.startsWith('image/')) this._onFile(f); });
+    area.addEventListener('drop', e => { e.preventDefault(); area.classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (f?.type.startsWith('image/')) this._onFile(f, true); });
     document.getElementById('changeBtn').addEventListener('click',  () => this._resetScan());
     document.getElementById('analyzeBtn').addEventListener('click', () => this._analyze());
     document.getElementById('saveBtn').addEventListener('click',    () => this._save());
     document.getElementById('discardBtn').addEventListener('click', () => this._resetScan());
   },
 
-  _onFile(file) {
+  _onFile(file, reset = false) {
     if (!file) return;
+    if (reset) this._images = [];
     const reader = new FileReader();
-    reader.onload = e => { this._imgBase64 = e.target.result; document.getElementById('previewImg').src = e.target.result; this._show('previewBox'); };
+    reader.onload = e => {
+      if (this._images.length >= 4) return this._toast('Maximum 4 photos', 'err');
+      this._images.push(e.target.result);
+      this._renderPhotoGrid();
+      this._show('previewBox');
+    };
     reader.readAsDataURL(file);
   },
 
+  _renderPhotoGrid() {
+    const grid = document.getElementById('multiGrid');
+    grid.innerHTML = this._images.map((img, i) => `
+      <div class="multi-photo">
+        <img src="${img}" alt="Photo ${i+1}">
+        <span class="multi-badge">${i+1}</span>
+        <button class="multi-del" data-idx="${i}">✕</button>
+      </div>`).join('');
+    grid.querySelectorAll('.multi-del').forEach(btn =>
+      btn.addEventListener('click', () => {
+        this._images.splice(+btn.dataset.idx, 1);
+        if (!this._images.length) return this._resetScan();
+        this._renderPhotoGrid();
+      })
+    );
+    const addBtn = document.getElementById('addPhotoBtn');
+    const addRow = document.getElementById('multiAdd');
+    if (addBtn) addBtn.style.display = this._images.length >= 4 ? 'none' : '';
+    if (addRow) addRow.style.display = this._images.length >= 4 ? 'none' : '';
+  },
+
   _resetScan() {
-    this._imgBase64 = null; this._editData = null;
-    document.getElementById('fileInput').value = '';
-    document.getElementById('cameraInput').value = '';
+    this._images = []; this._editData = null;
+    ['fileInput','cameraInput','addFileInput'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     this._show('uploadBox');
   },
 
   async _analyze() {
-    if (!this._imgBase64) return;
+    if (!this._images.length) return;
     this._show('loadingBox');
     try {
-      const data = await API.analyze(this._imgBase64);
+      const data = await API.analyze(this._images);
       this._editData = JSON.parse(JSON.stringify(data));
       this._renderResults();
       this._show('resultsBox');
@@ -256,12 +285,22 @@ const App = {
     });
   },
 
+  switchPeriod(p) {
+    this.period = p;
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === p));
+    this._renderDashboard();
+  },
+
   _renderDashboard() {
-    const empty = this.receipts.length === 0;
-    document.getElementById('dashEmpty').hidden   = !empty;
-    document.getElementById('dashContent').hidden =  empty;
-    if (empty) return;
-    const f = this._filtered();
+    const noReceipts  = this.receipts.length === 0;
+    const filtered    = this._filtered();
+    const noPeriod    = !noReceipts && filtered.length === 0;
+
+    document.getElementById('dashEmpty').hidden       = !noReceipts;
+    document.getElementById('dashPeriodEmpty').hidden = !noPeriod;
+    document.getElementById('dashContent').hidden     = noReceipts || noPeriod;
+    if (noReceipts || noPeriod) return;
+    const f = filtered;
     const total = f.reduce((s, r) => s+(r.total||0), 0);
     document.getElementById('sTotal').textContent = total.toFixed(2)+' €';
     document.getElementById('sCount').textContent = f.length;
