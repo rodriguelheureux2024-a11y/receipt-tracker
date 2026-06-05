@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReceiptIQ — Suivi Intelligent des Dépenses</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- NAVBAR -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <div class="nav-logo">🧾</div>
+      <div>
+        <span class="brand-name">ReceiptIQ</span>
+        <span class="brand-tag">Analyse intelligente</span>
+      </div>
+    </div>
+    <div class="nav-menu">
+      <button class="nav-btn active" data-tab="scan"><span>📷</span><span class="nav-lbl">Scanner</span></button>
+      <button class="nav-btn" data-tab="dashboard"><span>📊</span><span class="nav-lbl">Tableau de bord</span></button>
+      <button class="nav-btn" data-tab="history"><span>📋</span><span class="nav-lbl">Historique</span></button>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <!-- ===== SCAN ===== -->
+    <div id="tab-scan" class="tab active">
+
+      <div class="page-header">
+        <h1>Scanner un ticket</h1>
+        <p>Photographiez votre ticket de caisse pour analyser vos dépenses</p>
+      </div>
+
+      <!-- Upload -->
+      <div class="upload-box" id="uploadBox">
+        <div class="upload-area" id="uploadArea">
+          <div class="upload-emoji">📷</div>
+          <h3>Déposez votre ticket ici</h3>
+          <p>ou cliquez pour sélectionner une photo</p>
+          <div class="upload-btns">
+            <button class="btn btn-primary" id="uploadBtn">📁 Parcourir</button>
+            <button class="btn btn-outline" id="cameraBtn">📸 Prendre en photo</button>
+          </div>
+          <p class="upload-hint">JPG · PNG · HEIC — max 20 Mo</p>
+        </div>
+        <input type="file" id="fileInput"   accept="image/*" hidden>
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+      </div>
+
+      <!-- Preview -->
+      <div class="preview-box" id="previewBox" hidden>
+        <div class="preview-img-wrap">
+          <img id="previewImg" alt="Aperçu ticket">
+        </div>
+        <div class="row-center gap-12 mt-20">
+          <button class="btn btn-outline" id="changeBtn">↩ Changer</button>
+          <button class="btn btn-primary btn-lg" id="analyzeBtn">🔍 Analyser le ticket</button>
+        </div>
+      </div>
+
+      <!-- Loading -->
+      <div class="loading-box" id="loadingBox" hidden>
+        <div class="spinner"></div>
+        <p class="loading-title">Analyse en cours…</p>
+        <p class="loading-sub">Notre IA extrait et catégorise vos achats</p>
+      </div>
+
+      <!-- Results -->
+      <div class="results-box" id="resultsBox" hidden>
+        <div class="receipt-head">
+          <div>
+            <div class="rh-store" id="rStore">Magasin</div>
+            <div class="rh-date"  id="rDate">Date</div>
+          </div>
+          <div class="rh-total-block">
+            <span class="rh-total-lbl">TOTAL</span>
+            <span class="rh-total"    id="rTotal">0,00 €</span>
+          </div>
+        </div>
+        <div id="rCategories"></div>
+        <div class="row-center gap-12 mt-24">
+          <button class="btn btn-outline" id="discardBtn">✕ Annuler</button>
+          <button class="btn btn-success btn-lg" id="saveBtn">✓ Enregistrer</button>
+        </div>
+      </div>
+
+    </div><!-- /scan -->
+
+    <!-- ===== DASHBOARD ===== -->
+    <div id="tab-dashboard" class="tab">
+
+      <div class="page-header dash-header">
+        <div>
+          <h1>Tableau de bord</h1>
+          <p>Analyse de vos dépenses alimentaires</p>
+        </div>
+        <div class="period-bar" id="periodBar">
+          <button class="period-btn active" data-period="month">Ce mois</button>
+          <button class="period-btn" data-period="3months">3 mois</button>
+          <button class="period-btn" data-period="year">Cette année</button>
+          <button class="period-btn" data-period="all">Tout</button>
+        </div>
+      </div>
+
+      <!-- Empty -->
+      <div class="empty-state" id="dashEmpty" hidden>
+        <div class="empty-icon">📊</div>
+        <h3>Aucune donnée pour le moment</h3>
+        <p>Scannez votre premier ticket pour voir vos statistiques</p>
+        <button class="btn btn-primary" onclick="App.switchTab('scan')">📷 Scanner un ticket</button>
+      </div>
+
+      <!-- Content -->
+      <div id="dashContent">
+        <!-- Stats -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-ico" style="--ico-bg:#d1fae5">💰</div>
+            <div><div class="stat-lbl">Dépenses totales</div><div class="stat-val" id="sTotal">–</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-ico" style="--ico-bg:#dbeafe">🧾</div>
+            <div><div class="stat-lbl">Tickets scannés</div><div class="stat-val" id="sCount">–</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-ico" style="--ico-bg:#fef3c7">🏪</div>
+            <div><div class="stat-lbl">Magasin favori</div><div class="stat-val stat-sm" id="sStore">–</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-ico" style="--ico-bg:#fce7f3">🏆</div>
+            <div><div class="stat-lbl">1ère catégorie</div><div class="stat-val stat-sm" id="sCat">–</div></div>
+          </div>
+        </div>
+
+        <!-- Monthly chart -->
+        <div class="chart-card">
+          <div class="chart-head">
+            <h3>Dépenses mensuelles</h3>
+            <span class="chart-sub" id="monthlySubtitle"></span>
+          </div>
+          <div class="chart-wrap-tall"><canvas id="monthlyChart"></canvas></div>
+        </div>
+
+        <!-- Category + Store -->
+        <div class="chart-row-2">
+          <div class="chart-card">
+            <div class="chart-head"><h3>Répartition par catégorie</h3></div>
+            <div class="chart-wrap-sq"><canvas id="categoryChart"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-head"><h3>Dépenses par magasin</h3></div>
+            <div class="chart-wrap-sq"><canvas id="storeChart"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Top items -->
+        <div class="chart-card">
+          <div class="chart-head"><h3>Articles les plus chers</h3></div>
+          <div id="topItemsWrap"></div>
+        </div>
+      </div>
+
+    </div><!-- /dashboard -->
+
+    <!-- ===== HISTORY ===== -->
+    <div id="tab-history" class="tab">
+
+      <div class="page-header">
+        <h1>Historique</h1>
+        <div class="hist-filters">
+          <select id="fMonth" class="flt-sel"><option value="">Tous les mois</option></select>
+          <select id="fStore" class="flt-sel"><option value="">Tous les magasins</option></select>
+        </div>
+      </div>
+
+      <div class="empty-state" id="histEmpty" hidden>
+        <div class="empty-icon">🧾</div>
+        <h3>Aucun ticket enregistré</h3>
+        <p>Commencez par scanner votre premier ticket de caisse</p>
+        <button class="btn btn-primary" onclick="App.switchTab('scan')">📷 Scanner un ticket</button>
+      </div>
+
+      <div id="receiptsList" class="receipts-list"></div>
+
+    </div><!-- /history -->
+
+  </main>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/api.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
