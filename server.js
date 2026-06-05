@@ -173,12 +173,20 @@ app.post('/api/analyze', auth, async (req, res) => {
     }
 
     function isDuplicate(a, b) {
-      if (Math.abs(a.price - b.price) > 0.01) return false; // different price = different item
-      const na = a.name.toUpperCase(), nb = b.name.toUpperCase();
-      return na === nb                              // exact match
-          || na.includes(nb) || nb.includes(na)   // one contains the other (truncation)
-          || na.slice(0, 5) === nb.slice(0, 5)    // same first 5 chars + same price
-          || editDistance(na, nb) <= 3;            // very similar name
+      if (Math.abs(a.price - b.price) > 0.01) return false; // prix différent = article différent
+      const na = a.name.toUpperCase().trim();
+      const nb = b.name.toUpperCase().trim();
+      if (na === nb) return true; // nom identique exact
+
+      // Troncature : un nom est le début de l'autre (photo mal cadrée)
+      // Condition : le nom court doit faire au moins 10 chars pour éviter les faux positifs
+      const [shorter, longer] = na.length <= nb.length ? [na, nb] : [nb, na];
+      if (shorter.length >= 10 && longer.startsWith(shorter)) return true;
+
+      // Très proche (variance OCR, 1-2 caractères) — seulement si noms longs (≥8 chars)
+      if (na.length >= 8 && nb.length >= 8 && editDistance(na, nb) <= 2) return true;
+
+      return false;
     }
 
     items = items.filter((item, idx) =>
