@@ -102,7 +102,7 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
     // Mindee v2 uses the key directly as the Authorization header value
     const AUTH = apiKey;
     const form = new FormData();
-    form.append('document', imgBuffer, { filename: 'receipt.jpg', contentType: 'image/jpeg' });
+    form.append('file', imgBuffer, { filename: 'receipt.jpg', contentType: 'image/jpeg' });
     form.append('model_id', MINDEE_MODEL_ID);
 
     const submitRes = await fetch('https://api-v2.mindee.net/v2/inferences/enqueue', {
