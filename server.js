@@ -1,15 +1,14 @@
-const express  = require('express');
-const multer   = require('multer');
-const mindee   = require('mindee');
-const bcrypt   = require('bcryptjs');
-const jwt      = require('jsonwebtoken');
-const fs       = require('fs');
-const path     = require('path');
-const crypto   = require('crypto');
+const express   = require('express');
+const multer    = require('multer');
+const FormData  = require('form-data');
+const bcrypt    = require('bcryptjs');
+const jwt       = require('jsonwebtoken');
+const fs        = require('fs');
+const path      = require('path');
+const crypto    = require('crypto');
 
 const app    = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
-const mindeeClient = new mindee.Client({ apiKey: process.env.MINDEE_API_KEY });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'receiptiq-dev-secret-change-in-prod';
 const DATA_DIR   = path.join(__dirname, 'data');
@@ -95,48 +94,53 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'Aucune image fournie' });
     }
 
-    // Send to Mindee specialized receipt parser
-    const inputDoc   = mindeeClient.docFromBuffer(imgBuffer, 'receipt.jpg');
-    const apiResponse = await mindeeClient.parse(mindee.product.ReceiptV5, inputDoc);
-    const pred        = apiResponse.document.inference.prediction;
+    // Call Mindee REST API directly
+    const form = new FormData();
+    form.append('document', imgBuffer, { filename: 'receipt.jpg', contentType: 'image/jpeg' });
 
-    // Store name
-    const store = pred.supplierName?.value || 'Magasin inconnu';
+    const mindeeRes = await fetch(
+      'https://api.mindee.net/v1/products/mindee/expense_receipts/v5/predict',
+      {
+        method: 'POST',
+        headers: { 'Authorization': `Token ${process.env.MINDEE_API_KEY}`, ...form.getHeaders() },
+        body: form,
+      }
+    );
 
-    // Date → normalize to YYYY-MM-DD
+    if (!mindeeRes.ok) {
+      const errText = await mindeeRes.text();
+      console.error('Mindee HTTP error:', mindeeRes.status, errText);
+      throw new Error(`Mindee ${mindeeRes.status}: ${errText}`);
+    }
+
+    const json = await mindeeRes.json();
+    const pred = json.document.inference.prediction;
+
+    // Store, date, total
+    const store = pred.supplier_name?.value || 'Magasin inconnu';
     let date = new Date().toISOString().split('T')[0];
     if (pred.date?.value) {
-      try {
-        const d = new Date(pred.date.value);
-        if (!isNaN(d.getTime())) date = d.toISOString().split('T')[0];
-      } catch {}
+      try { const d = new Date(pred.date.value); if (!isNaN(d)) date = d.toISOString().split('T')[0]; } catch {}
     }
-
-    // Total
-    const total = parseFloat(pred.totalAmount?.value) || 0;
+    const total = parseFloat(pred.total_amount?.value) || 0;
 
     // Line items
-    let items = [];
-    if (pred.lineItems && pred.lineItems.length > 0) {
-      items = pred.lineItems
-        .filter(item => item.description?.trim())
-        .map(item => ({
-          name:     item.description.trim(),
-          price:    parseFloat(item.totalAmount ?? item.unitPrice ?? 0) || 0,
-          quantity: parseFloat(item.quantity ?? 1) || 1,
-          category: categorize(item.description),
-        }))
-        .filter(item => item.name.length > 0);
-    }
+    const rawItems = pred.line_items || [];
+    let items = rawItems
+      .filter(i => i.description?.trim())
+      .map(i => ({
+        name:     i.description.trim(),
+        price:    parseFloat(i.total_amount ?? i.unit_price ?? 0) || 0,
+        quantity: parseFloat(i.quantity ?? 1) || 1,
+        category: categorize(i.description),
+      }))
+      .filter(i => i.name.length > 0);
 
     if (items.length === 0) {
-      return res.status(422).json({
-        success: false,
-        error: 'Aucun article détecté. Vérifiez que le ticket est bien net et éclairé, puis réessayez.'
-      });
+      return res.status(422).json({ success: false, error: 'Aucun article détecté. Vérifiez la netteté de la photo et réessayez.' });
     }
 
-    console.log(`Mindee: ${store} | ${date} | ${total}€ | ${items.length} articles`);
+    console.log(`✅ Mindee: ${store} | ${date} | ${total}€ | ${items.length} articles`);
     res.json({ success: true, data: { store, date, total, items } });
 
   } catch (e) {
@@ -159,5 +163,5 @@ app.delete('/api/receipts/:id', auth, (req, res) => { saveRec(req.user.id, loadR
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n✅ ReceiptIQ v3 (Mindee) → http://localhost:${PORT}`);
-  if (!process.env.MINDEE_API_KEY) console.warn('⚠️  MINDEE_API_KEY manquante → https://mindee.com');
+  if (!process.env.MINDEE_API_KEY) console.warn('⚠️  MINDEE_API_KEY manquante → https://platform.mindee.com/api-key');
 });
