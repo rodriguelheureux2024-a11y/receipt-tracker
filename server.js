@@ -1,6 +1,7 @@
 const express   = require('express');
 const multer    = require('multer');
 const FormData  = require('form-data');
+const fetch     = require('node-fetch');   // compatible Node 14/16/18/20
 const bcrypt    = require('bcryptjs');
 const jwt       = require('jsonwebtoken');
 const fs        = require('fs');
