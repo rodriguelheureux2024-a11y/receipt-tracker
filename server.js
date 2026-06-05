@@ -1,15 +1,15 @@
 const express  = require('express');
 const multer   = require('multer');
-const Groq     = require('groq-sdk');
+const { Mistral } = require('@mistralai/mistralai');
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
 const fs       = require('fs');
 const path     = require('path');
 const crypto   = require('crypto');
 
-const app    = express();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
-const groq   = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const app     = express();
+const upload  = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const mistral = new Mistral({ apiKey: process.env.MISTRAL_API_KEY });
 const JWT_SECRET   = process.env.JWT_SECRET || 'receiptiq-dev-secret-change-in-prod';
 const DATA_DIR     = path.join(__dirname, 'data');
 const USERS_FILE   = path.join(DATA_DIR, 'users.json');
@@ -72,26 +72,29 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me', auth, (req, res) => res.json({ id: req.user.id, name: req.user.name, email: req.user.email }));
 
 /* ── RECEIPT PROMPT ── */
-const PROMPT = `You are a receipt scanner. Look at the receipt image and extract every purchased item.
+const PROMPT = `You are a receipt data extraction expert. Read this receipt image very carefully.
 
-YOU MUST return a JSON object. Start your response with { and end with }.
+Return ONLY a valid JSON object — nothing else, no explanation.
 
-Format:
-{"store":"store name","date":"YYYY-MM-DD","total":0.00,"items":[{"name":"product name","price":0.00,"quantity":1,"category":"category"}]}
+{"store":"STORE NAME","date":"YYYY-MM-DD","total":38.74,"items":[{"name":"Full Product Name","price":5.79,"quantity":1,"category":"Category"}]}
 
-CRITICAL RULES:
-1. List EVERY product line on the receipt as a separate item in the "items" array
-2. DO NOT include: "Regular Price", "Save$", "Savings", "SUBTOTAL", "TAX", "TOTAL", "VISA", "AUTH CODE"
-3. Tax codes (NF, F, T, WIC) after a price are NOT product names — ignore them
-4. "3 @ $1.00 ea" = quantity:3, price:3.00
-5. If you see product lines, you MUST include them all — the items array must NOT be empty
+HOW TO READ THIS RECEIPT:
+Each purchased item appears as ONE LINE containing: [barcode number] [PRODUCT NAME] [tax code] [PRICE]
+- The price at the END of that same line = the price you paid for that item
+- "Regular Price $X.XX" = the old/original price — DO NOT use this, DO NOT include it as an item
+- "Save $X" / "6for$X" / "Savings" = discount info — skip entirely
+- "SUBTOTAL", "TAX", "TOTAL", "VISA CHARGE", "AUTH CODE" = skip
+- Letters after price (NF, F, T, WIC) = tax codes, not part of the name
 
-Categories to use:
-"Fruits","Légumes","Viandes & Poissons","Produits Laitiers","Boulangerie & Pâtisserie","Boissons","Épicerie Sèche","Surgelés","Hygiène & Beauté","Entretien Maison","Santé","Snacks & Confiseries","Autres"
+For quantities like "3 @ $1.00 ea": quantity=3, price=3.00 (the TOTAL for all 3)
 
-Quick brand guide: KASHI/CHEERIOS=Épicerie Sèche | CHOBANI/YOPLAIT=Produits Laitiers | PASTA/RICE=Épicerie Sèche | BEEF/CHICKEN/SALMON=Viandes & Poissons | WATER/JUICE/SODA=Boissons | CHIPS/COOKIES=Snacks & Confiseries | SHAMPOO/SOAP=Hygiène & Beauté | DETERGENT=Entretien Maison
+CATEGORIES (use exactly):
+"Fruits" | "Légumes" | "Viandes & Poissons" | "Produits Laitiers" | "Boulangerie & Pâtisserie" | "Boissons" | "Épicerie Sèche" | "Surgelés" | "Hygiène & Beauté" | "Entretien Maison" | "Santé" | "Snacks & Confiseries" | "Autres"
 
-Today is ${new Date().toISOString().split('T')[0]} (use as date if not visible on receipt).`;
+BRAND RECOGNITION:
+KASHI → Épicerie Sèche | CHOBANI → Produits Laitiers | CENTO → Épicerie Sèche | BARILLA/PASTA → Épicerie Sèche | LAURA'S LEAN → Viandes & Poissons | SIMPLY/TROPICANA → Boissons | CHIPS/DORITOS → Snacks & Confiseries
+
+Date format must be YYYY-MM-DD. Use ${new Date().toISOString().split('T')[0]} if not readable.`;
 
 /* ── ANALYZE ── */
 app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
@@ -104,21 +107,21 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
       imgData = m ? m[2] : req.body.imageBase64; mediaType = m ? m[1] : 'image/jpeg';
     } else return res.status(400).json({ error: 'Aucune image fournie' });
 
-    const response = await groq.chat.completions.create({
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-      max_tokens: 4096,
+    const response = await mistral.chat.complete({
+      model: 'pixtral-12b-2409',
+      maxTokens: 4096,
       temperature: 0.05,
       messages: [{
         role: 'user',
         content: [
-          { type: 'image_url', image_url: { url: `data:${mediaType};base64,${imgData}` } },
-          { type: 'text', text: PROMPT }
+          { type: 'image_url', imageUrl: `data:${mediaType};base64,${imgData}` },
+          { type: 'text',      text: PROMPT }
         ]
       }]
     });
 
     let rawText = response.choices[0].message.content.trim();
-    console.log('AI RAW:', rawText.slice(0, 300));
+    console.log('PIXTRAL RAW:', rawText.slice(0, 400));
 
     // Robustly extract the first complete JSON object
     const start = rawText.indexOf('{');
@@ -144,8 +147,16 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
       category: i.category || 'Autres',
     })).filter(i => i.name.length > 0);  // only remove nameless items
 
-    // Normalize total too
+    // Normalize total
     if (data.total) data.total = parseFloat(String(data.total).replace(/[^0-9.]/g, '')) || 0;
+
+    // Normalize date to YYYY-MM-DD (handle "Mar 10, 2026", "10/03/2026", etc.)
+    if (data.date) {
+      try {
+        const d = new Date(data.date);
+        data.date = !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+      } catch { data.date = new Date().toISOString().split('T')[0]; }
+    }
 
     if (data.items.length === 0) {
       throw new Error('Aucun article trouvé. Prenez la photo plus près et assurez-vous que le ticket est bien éclairé.');

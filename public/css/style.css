@@ -122,14 +122,14 @@ body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg);color:var
 
 .res-items{background:#fff;border-radius:var(--r);overflow:hidden;box-shadow:var(--sh);margin-bottom:12px}
 
-.edit-row{display:grid;grid-template-columns:1fr auto auto auto;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border)}
+.edit-row{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap}
 .edit-row:last-of-type{border-bottom:none}
 
-.edit-name{border:1.5px solid transparent;border-radius:var(--r-sm);padding:5px 8px;font-size:13px;font-family:inherit;color:var(--txt);background:transparent;width:100%;transition:var(--ease)}
+.edit-name{flex:1 1 160px;min-width:140px;border:1.5px solid transparent;border-radius:var(--r-sm);padding:5px 8px;font-size:13px;font-family:inherit;color:var(--txt);background:transparent;transition:var(--ease)}
 .edit-name:hover{border-color:var(--border);background:var(--bg)}
 .edit-name:focus{outline:none;border-color:var(--green);background:#fff}
 
-.edit-cat{padding:5px 8px;border:1.5px solid var(--border);border-radius:var(--r-sm);font-size:12px;font-family:inherit;background:var(--bg);color:var(--txt2);cursor:pointer;white-space:nowrap}
+.edit-cat{flex:0 0 auto;max-width:160px;padding:5px 8px;border:1.5px solid var(--border);border-radius:var(--r-sm);font-size:12px;font-family:inherit;background:var(--bg);color:var(--txt2);cursor:pointer}
 .edit-cat:focus{outline:none;border-color:var(--green)}
 
 .edit-price-wrap{display:flex;align-items:center;gap:3px;flex-shrink:0}
