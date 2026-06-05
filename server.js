@@ -18,47 +18,54 @@ app.use(express.static(path.join(__dirname, 'public')));
 function load()     { try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch { return []; } }
 function save(data) { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
 
-const PROMPT = `Tu es un expert comptable spécialisé dans l'analyse de tickets de caisse.
-Lis ATTENTIVEMENT chaque ligne de ce ticket et extrais les données en JSON valide.
+const PROMPT = `You are a receipt analysis expert. Look carefully at this receipt image and extract ALL purchase data.
 
-IMPORTANT : Réponds UNIQUEMENT avec le JSON ci-dessous, AUCUN texte avant ou après.
+Return ONLY a valid JSON object — no markdown, no explanation, nothing else.
 
+JSON format:
 {
-  "store": "Nom exact du magasin (ex: Carrefour, Leclerc, Lidl, Aldi, Intermarché...)",
+  "store": "store name from receipt header",
   "date": "YYYY-MM-DD",
-  "total": 0.00,
+  "total": 38.74,
   "items": [
-    {
-      "name": "Nom complet du produit tel qu'écrit",
-      "price": 0.00,
-      "quantity": 1,
-      "category": "UNE des catégories ci-dessous"
-    }
+    { "name": "Product name", "price": 5.79, "quantity": 1, "category": "category" }
   ]
 }
 
-CATÉGORIES (utilise exactement ce texte) :
-- "Fruits" → pommes, bananes, oranges, raisins, fraises, cerises, poires...
-- "Légumes" → carottes, tomates, salade, courgettes, poireaux, champignons...
-- "Viandes & Poissons" → poulet, bœuf, porc, saumon, thon, jambon, charcuterie...
-- "Produits Laitiers" → lait, yaourt, fromage, beurre, crème fraîche, œufs...
-- "Boulangerie & Pâtisserie" → pain, baguette, gâteau, croissant, brioche...
-- "Boissons" → eau, jus, soda, café, thé, vin, bière, sirop...
-- "Épicerie Sèche" → pâtes, riz, farine, conserves, céréales, huile, vinaigre...
-- "Surgelés" → tout produit surgelé ou congelé
-- "Hygiène & Beauté" → shampoing, savon, dentifrice, déodorant, maquillage...
-- "Entretien Maison" → lessive, produit ménager, éponge, papier toilette...
-- "Santé" → médicaments, vitamines, compléments alimentaires...
-- "Snacks & Confiseries" → chips, bonbons, chocolat, biscuits, gâteaux apéritifs...
-- "Autres" → tout ce qui ne rentre pas dans les catégories précédentes
+HOW TO READ THE RECEIPT:
+- The store name is usually at the very top (logo or header text)
+- Each product line typically shows: barcode/SKU, product name, price
+- Lines with "NF", "F", "T", "WIC" after the price are tax codes — ignore them
+- Lines starting with "Regular Price", "Save$", "Savings", "You Saved" are discounts — DO NOT include as items
+- The TOTAL is the final amount paid (after discounts and taxes)
+- "SUBTOTAL", "TAX", "TOTAL" lines are summary lines — don't include as items
+- Visa/payment lines are not items
 
-RÈGLES :
-- Lis TOUTES les lignes du ticket, ne rate aucun article
-- price = prix payé pour cette ligne entière
-- Si vendu au poids (ex: 0.450 kg × 5.99€/kg), calcule le prix total
-- Ne confonds pas une remise/promotion avec un article
-- date = date sur le ticket au format YYYY-MM-DD (si illisible, mets ${new Date().toISOString().split('T')[0]})
-- total = montant total payé (TTC)`;
+CATEGORIES — pick exactly one:
+- "Fruits" → fresh fruits
+- "Légumes" → fresh vegetables
+- "Viandes & Poissons" → meat, fish, poultry, deli
+- "Produits Laitiers" → milk, yogurt, cheese, butter, eggs, dairy
+- "Boulangerie & Pâtisserie" → bread, pastries, bakery
+- "Boissons" → water, juice, soda, coffee, tea, alcohol
+- "Épicerie Sèche" → pasta, rice, canned goods, cereals, condiments, oil
+- "Surgelés" → frozen foods
+- "Hygiène & Beauté" → shampoo, soap, toothpaste, cosmetics
+- "Entretien Maison" → cleaning products, laundry, household
+- "Santé" → medicine, vitamins, supplements
+- "Snacks & Confiseries" → chips, candy, chocolate, cookies, snacks
+- "Autres" → anything that doesn't fit above
+
+IMPORTANT RULES:
+- Include EVERY product line (not discounts, not totals)
+- "KASHI" → "Épicerie Sèche" (cereal brand)
+- "CHOBANI" → "Produits Laitiers" (yogurt brand)
+- "GO PASTA" → "Épicerie Sèche"
+- "POP FRUIT" → "Snacks & Confiseries" or "Fruits"
+- "LAURA'S LEAN" → "Viandes & Poissons" (beef brand)
+- "SIMPLY BEVERA" → "Boissons"
+- For quantities like "3 @ $1.00 ea" → quantity=3, price=3.00
+- date format must be YYYY-MM-DD (use ${new Date().toISOString().split('T')[0]} if not visible)`;
 
 app.post('/api/analyze', upload.single('image'), async (req, res) => {
   try {
@@ -75,7 +82,7 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     }
 
     const response = await groq.chat.completions.create({
-      model: 'meta-llama/llama-4-maverick-17b-128e-instruct',
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
       max_tokens: 3000,
       temperature: 0.1,
       messages: [{
