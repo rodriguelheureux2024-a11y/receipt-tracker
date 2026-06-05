@@ -119,7 +119,11 @@ async function analyzeOneImage(imgBuffer) {
   if (fields.date?.value) {
     try { const d = new Date(fields.date.value); if (!isNaN(d)) date = d.toISOString().split('T')[0]; } catch {}
   }
-  const total = parseFloat(fields.total_amount?.value ?? 0) || 0;
+  // Use the LARGEST of total_amount, or total_net + total_tax (to include taxes)
+  const totalAmt = parseFloat(fields.total_amount?.value ?? 0) || 0;
+  const totalNet = parseFloat(fields.total_net?.value  ?? 0) || 0;
+  const totalTax = parseFloat(fields.total_tax?.value  ?? 0) || 0;
+  const total = Math.max(totalAmt, totalNet + totalTax, totalNet);
   const items = (fields.line_items?.items || [])
     .filter(i => i.fields?.description?.value?.trim())
     .map(i => ({
@@ -156,13 +160,30 @@ app.post('/api/analyze', auth, async (req, res) => {
     let total = Math.max(...results.map(r => r.total));
     let items = results.flatMap(r => r.items);
 
-    // Remove near-duplicates (same name, same price) that might appear on overlapping photos
-    const seen = new Set();
-    items = items.filter(i => {
-      const key = `${i.name}|${i.price}`;
-      if (seen.has(key)) return false;
-      seen.add(key); return true;
-    });
+    // Smart deduplication for overlapping photos
+    // Two items are duplicates if: same price AND (same name OR one name contains the other OR very similar names)
+    function editDistance(a, b) {
+      const m = [], al = a.length, bl = b.length;
+      for (let i = 0; i <= bl; i++) m[i] = [i];
+      for (let j = 0; j <= al; j++) m[0][j] = j;
+      for (let i = 1; i <= bl; i++)
+        for (let j = 1; j <= al; j++)
+          m[i][j] = b[i-1] === a[j-1] ? m[i-1][j-1] : Math.min(m[i-1][j-1], m[i][j-1], m[i-1][j]) + 1;
+      return m[bl][al];
+    }
+
+    function isDuplicate(a, b) {
+      if (Math.abs(a.price - b.price) > 0.01) return false; // different price = different item
+      const na = a.name.toUpperCase(), nb = b.name.toUpperCase();
+      return na === nb                              // exact match
+          || na.includes(nb) || nb.includes(na)   // one contains the other (truncation)
+          || na.slice(0, 5) === nb.slice(0, 5)    // same first 5 chars + same price
+          || editDistance(na, nb) <= 3;            // very similar name
+    }
+
+    items = items.filter((item, idx) =>
+      !items.slice(0, idx).some(prev => isDuplicate(prev, item))
+    );
 
     if (items.length === 0) {
       return res.status(422).json({ success: false, error: 'Aucun article détecté. Assurez-vous que les articles sont visibles sur la photo.' });
