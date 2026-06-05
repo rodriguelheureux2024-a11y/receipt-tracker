@@ -95,50 +95,88 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'Aucune image fournie' });
     }
 
-    // Call Mindee REST API directly
+    // ── Step 1: Submit to Mindee v2 API ──
+    const MINDEE_MODEL_ID = 'fee72ca6-432d-4e5f-afc4-0fbaa2a0e518';
     const form = new FormData();
     form.append('document', imgBuffer, { filename: 'receipt.jpg', contentType: 'image/jpeg' });
+    form.append('model_id', MINDEE_MODEL_ID);
 
-    const mindeeRes = await fetch(
-      'https://api.mindee.net/v1/products/mindee/expense_receipts/v5/predict',
-      {
-        method: 'POST',
-        headers: { 'Authorization': `Token ${process.env.MINDEE_API_KEY}`, ...form.getHeaders() },
-        body: form,
+    const submitRes = await fetch('https://api.mindee.net/v2/inferences', {
+      method: 'POST',
+      headers: { 'Authorization': `Token ${process.env.MINDEE_API_KEY}`, ...form.getHeaders() },
+      body: form,
+    });
+
+    if (!submitRes.ok) {
+      const errText = await submitRes.text();
+      console.error('Mindee submit error:', submitRes.status, errText);
+      throw new Error(`Mindee ${submitRes.status}: ${errText}`);
+    }
+
+    const submitJson = await submitRes.json();
+    console.log('Mindee response keys:', Object.keys(submitJson));
+
+    // ── Step 2: Extract fields (handle both sync and async responses) ──
+    let fields;
+    if (submitJson.inference?.result?.fields) {
+      // Synchronous result
+      fields = submitJson.inference.result.fields;
+    } else if (submitJson.job?.result?.document?.inference?.result?.fields) {
+      // Async job result
+      fields = submitJson.job.result.document.inference.result.fields;
+    } else if (submitJson.document?.inference?.result?.fields) {
+      fields = submitJson.document.inference.result.fields;
+    } else {
+      // Poll for result if job is still processing
+      const jobId = submitJson.job?.id || submitJson.id;
+      if (!jobId) {
+        console.error('Unexpected Mindee response:', JSON.stringify(submitJson).slice(0, 500));
+        throw new Error('Format de réponse Mindee inattendu');
       }
-    );
-
-    if (!mindeeRes.ok) {
-      const errText = await mindeeRes.text();
-      console.error('Mindee HTTP error:', mindeeRes.status, errText);
-      throw new Error(`Mindee ${mindeeRes.status}: ${errText}`);
+      // Poll up to 10 times
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 1500));
+        const pollRes = await fetch(`https://api.mindee.net/v2/inferences/${jobId}`, {
+          headers: { 'Authorization': `Token ${process.env.MINDEE_API_KEY}` }
+        });
+        const pollJson = await pollRes.json();
+        const status = pollJson.job?.status || pollJson.status;
+        if (status === 'processed' || status === 'completed') {
+          fields = pollJson.job?.result?.document?.inference?.result?.fields
+                || pollJson.inference?.result?.fields
+                || pollJson.document?.inference?.result?.fields;
+          break;
+        }
+        if (status === 'failed') throw new Error('Mindee processing failed');
+      }
     }
 
-    const json = await mindeeRes.json();
-    const pred = json.document.inference.prediction;
+    if (!fields) throw new Error('Impossible de récupérer les données du ticket');
 
-    // Store, date, total
-    const store = pred.supplier_name?.value || 'Magasin inconnu';
+    // ── Step 3: Parse fields ──
+    const store = fields.supplier_name?.value || fields.store_name?.value || 'Magasin inconnu';
+
     let date = new Date().toISOString().split('T')[0];
-    if (pred.date?.value) {
-      try { const d = new Date(pred.date.value); if (!isNaN(d)) date = d.toISOString().split('T')[0]; } catch {}
+    const rawDate = fields.date?.value;
+    if (rawDate) {
+      try { const d = new Date(rawDate); if (!isNaN(d)) date = d.toISOString().split('T')[0]; } catch {}
     }
-    const total = parseFloat(pred.total_amount?.value) || 0;
 
-    // Line items
-    const rawItems = pred.line_items || [];
+    const total = parseFloat(fields.total_amount?.value ?? fields.total?.value ?? 0) || 0;
+
+    const rawItems = fields.line_items?.values || fields.line_items || [];
     let items = rawItems
-      .filter(i => i.description?.trim())
-      .map(i => ({
-        name:     i.description.trim(),
-        price:    parseFloat(i.total_amount ?? i.unit_price ?? 0) || 0,
-        quantity: parseFloat(i.quantity ?? 1) || 1,
-        category: categorize(i.description),
-      }))
+      .filter(i => (i.description?.value || i.description)?.trim())
+      .map(i => {
+        const name  = (i.description?.value || i.description || '').trim();
+        const price = parseFloat(i.total_amount?.value ?? i.unit_price?.value ?? i.total_amount ?? i.unit_price ?? 0) || 0;
+        const qty   = parseFloat(i.quantity?.value ?? i.quantity ?? 1) || 1;
+        return { name, price, quantity: qty, category: categorize(name) };
+      })
       .filter(i => i.name.length > 0);
 
     if (items.length === 0) {
-      return res.status(422).json({ success: false, error: 'Aucun article détecté. Vérifiez la netteté de la photo et réessayez.' });
+      return res.status(422).json({ success: false, error: 'Aucun article détecté. Prenez la photo plus près et réessayez.' });
     }
 
     console.log(`✅ Mindee: ${store} | ${date} | ${total}€ | ${items.length} articles`);
