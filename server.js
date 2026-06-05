@@ -99,9 +99,8 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
     const MINDEE_MODEL_ID = 'fee72ca6-432d-4e5f-afc4-0fbaa2a0e518';
     const form = new FormData();
     form.append('document', imgBuffer, { filename: 'receipt.jpg', contentType: 'image/jpeg' });
-    form.append('model_id', MINDEE_MODEL_ID);
 
-    const submitRes = await fetch('https://api.mindee.net/v2/inferences', {
+    const submitRes = await fetch(`https://api.mindee.net/v2/inferences/${MINDEE_MODEL_ID}`, {
       method: 'POST',
       headers: { 'Authorization': `Token ${process.env.MINDEE_API_KEY}`, ...form.getHeaders() },
       body: form,
