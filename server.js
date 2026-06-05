@@ -117,23 +117,39 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
       }]
     });
 
-    let text = response.choices[0].message.content.trim();
+    let rawText = response.choices[0].message.content.trim();
+    console.log('AI RAW:', rawText.slice(0, 300));
 
-    // Extract the JSON object from the response (ignore any surrounding text)
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Réponse non valide — réessayez avec une photo plus nette');
-    const data = JSON.parse(jsonMatch[0]);
-
-    // Ensure items is an array
-    if (!Array.isArray(data.items)) data.items = [];
-
-    // If no items detected, throw a clear error
-    if (data.items.length === 0) {
-      throw new Error('Aucun article détecté. Assurez-vous que le ticket est bien éclairé et net.');
+    // Robustly extract the first complete JSON object
+    const start = rawText.indexOf('{');
+    if (start === -1) throw new Error('Réponse illisible — réessayez avec une photo plus nette');
+    let depth = 0, end = -1;
+    for (let i = start; i < rawText.length; i++) {
+      if (rawText[i] === '{') depth++;
+      else if (rawText[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
     }
+    if (end === -1) throw new Error('JSON incomplet dans la réponse');
+    const data = JSON.parse(rawText.slice(start, end + 1));
 
-    // Clean up items
-    data.items = data.items.filter(i => i.name && i.price > 0);
+    // Support alternative keys (items / products / line_items)
+    if (!data.items && data.products)   data.items = data.products;
+    if (!data.items && data.line_items) data.items = data.line_items;
+    if (!Array.isArray(data.items))     data.items = [];
+
+    // Normalize every item — handle string prices like "$5.79"
+    data.items = data.items.map(i => ({
+      name:     String(i.name || '').trim(),
+      price:    parseFloat(String(i.price  || '0').replace(/[^0-9.]/g, '')) || 0,
+      quantity: parseInt(String(i.quantity || '1').replace(/[^0-9]/g, ''))  || 1,
+      category: i.category || 'Autres',
+    })).filter(i => i.name.length > 0);  // only remove nameless items
+
+    // Normalize total too
+    if (data.total) data.total = parseFloat(String(data.total).replace(/[^0-9.]/g, '')) || 0;
+
+    if (data.items.length === 0) {
+      throw new Error('Aucun article trouvé. Prenez la photo plus près et assurez-vous que le ticket est bien éclairé.');
+    }
 
     res.json({ success: true, data });
   } catch (e) {
