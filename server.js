@@ -1,12 +1,12 @@
 const express = require('express');
 const multer  = require('multer');
-const Anthropic = require('@anthropic-ai/sdk');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs   = require('fs');
 const path = require('path');
 
 const app    = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
-const client = new Anthropic();
+const genAI  = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
 const DATA_FILE = path.join(__dirname, 'data', 'receipts.json');
 
@@ -18,8 +18,8 @@ if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, '[]');
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-function load()        { try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch { return []; } }
-function save(data)    { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
+function load()     { try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch { return []; } }
+function save(data) { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
 
 const PROMPT = `Tu es un expert en analyse de tickets de caisse français/européens.
 Analyse cette image et extrais toutes les informations en JSON strictement valide (pas de markdown, pas de texte autour).
@@ -43,7 +43,7 @@ Règles :
 - date au format YYYY-MM-DD (aujourd'hui si illisible)
 - price = prix total de la ligne (quantité × prix unitaire)
 - quantity = 1 si non précisé
-- Si le ticket n'est pas lisible, retourne quand même un JSON avec les champs vides/zéro`;
+- Réponds UNIQUEMENT avec le JSON, rien d'autre`;
 
 // Analyze (does NOT save — client confirms)
 app.post('/api/analyze', upload.single('image'), async (req, res) => {
@@ -51,8 +51,8 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
     let imgData, mediaType;
 
     if (req.file) {
-      imgData    = req.file.buffer.toString('base64');
-      mediaType  = req.file.mimetype;
+      imgData   = req.file.buffer.toString('base64');
+      mediaType = req.file.mimetype;
     } else if (req.body.imageBase64) {
       const m = req.body.imageBase64.match(/^data:([^;]+);base64,(.+)$/);
       if (m) { mediaType = m[1]; imgData = m[2]; }
@@ -61,19 +61,13 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'Aucune image fournie' });
     }
 
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: imgData } },
-          { type: 'text', text: PROMPT }
-        ]
-      }]
-    });
+    const model  = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await model.generateContent([
+      { inlineData: { mimeType: mediaType, data: imgData } },
+      PROMPT
+    ]);
 
-    let text = response.content[0].text.trim();
+    let text = result.response.text().trim();
     text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 
     const data = JSON.parse(text);
@@ -106,8 +100,8 @@ app.delete('/api/receipts/:id', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n✅ ReceiptIQ démarré → http://localhost:${PORT}`);
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('\n⚠️  ATTENTION : variable ANTHROPIC_API_KEY non définie !');
-    console.warn('   Définissez-la avant de lancer : set ANTHROPIC_API_KEY=sk-ant-...\n');
+  if (!process.env.GOOGLE_API_KEY) {
+    console.warn('\n⚠️  ATTENTION : variable GOOGLE_API_KEY non définie !');
+    console.warn('   Obtenez une clé gratuite sur : https://aistudio.google.com/app/apikey\n');
   }
 });
