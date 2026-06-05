@@ -97,12 +97,14 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
 
     // ── Step 1: Submit to Mindee v2 API ──
     const MINDEE_MODEL_ID = 'fee72ca6-432d-4e5f-afc4-0fbaa2a0e518';
+    const AUTH = `Token ${process.env.MINDEE_API_KEY}`;
     const form = new FormData();
     form.append('document', imgBuffer, { filename: 'receipt.jpg', contentType: 'image/jpeg' });
+    form.append('model_id', MINDEE_MODEL_ID);
 
-    const submitRes = await fetch(`https://api.mindee.net/v2/inferences/${MINDEE_MODEL_ID}`, {
+    const submitRes = await fetch('https://api-v2.mindee.net/v2/inferences/enqueue', {
       method: 'POST',
-      headers: { 'Authorization': `Token ${process.env.MINDEE_API_KEY}`, ...form.getHeaders() },
+      headers: { 'Authorization': AUTH, ...form.getHeaders() },
       body: form,
     });
 
@@ -113,44 +115,38 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
     }
 
     const submitJson = await submitRes.json();
-    console.log('Mindee response keys:', Object.keys(submitJson));
+    const pollingUrl = submitJson.job?.polling_url;
+    const jobId      = submitJson.job?.id;
+    console.log('Mindee job submitted:', jobId, '| polling:', pollingUrl);
 
-    // ── Step 2: Extract fields (handle both sync and async responses) ──
-    let fields;
-    if (submitJson.inference?.result?.fields) {
-      // Synchronous result
-      fields = submitJson.inference.result.fields;
-    } else if (submitJson.job?.result?.document?.inference?.result?.fields) {
-      // Async job result
-      fields = submitJson.job.result.document.inference.result.fields;
-    } else if (submitJson.document?.inference?.result?.fields) {
-      fields = submitJson.document.inference.result.fields;
-    } else {
-      // Poll for result if job is still processing
-      const jobId = submitJson.job?.id || submitJson.id;
-      if (!jobId) {
-        console.error('Unexpected Mindee response:', JSON.stringify(submitJson).slice(0, 500));
-        throw new Error('Format de réponse Mindee inattendu');
-      }
-      // Poll up to 10 times
-      for (let i = 0; i < 10; i++) {
-        await new Promise(r => setTimeout(r, 1500));
-        const pollRes = await fetch(`https://api.mindee.net/v2/inferences/${jobId}`, {
-          headers: { 'Authorization': `Token ${process.env.MINDEE_API_KEY}` }
-        });
-        const pollJson = await pollRes.json();
-        const status = pollJson.job?.status || pollJson.status;
-        if (status === 'processed' || status === 'completed') {
-          fields = pollJson.job?.result?.document?.inference?.result?.fields
-                || pollJson.inference?.result?.fields
-                || pollJson.document?.inference?.result?.fields;
-          break;
-        }
-        if (status === 'failed') throw new Error('Mindee processing failed');
-      }
+    if (!pollingUrl && !jobId) {
+      console.error('Unexpected:', JSON.stringify(submitJson).slice(0, 300));
+      throw new Error('Réponse Mindee inattendue lors de la soumission');
     }
 
-    if (!fields) throw new Error('Impossible de récupérer les données du ticket');
+    // ── Step 2: Poll until done ──
+    let pollData;
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const url = pollingUrl || `https://api-v2.mindee.net/v2/jobs/${jobId}`;
+      const pollRes = await fetch(url, { headers: { 'Authorization': AUTH } });
+      pollData = await pollRes.json();
+      const status = pollData.job?.status;
+      console.log(`Poll ${i + 1}: status = ${status}`);
+      if (status && status !== 'Processing') break;
+    }
+
+    // ── Step 3: Extract fields from result ──
+    const result = pollData?.job?.inference?.result
+                || pollData?.job?.result
+                || pollData?.inference?.result
+                || pollData?.result;
+
+    let fields = result?.fields || result?.prediction || result;
+    if (!fields || typeof fields !== 'object') {
+      console.error('Final poll data:', JSON.stringify(pollData).slice(0, 500));
+      throw new Error('Impossible de récupérer les données du ticket');
+    }
 
     // ── Step 3: Parse fields ──
     const store = fields.supplier_name?.value || fields.store_name?.value || 'Magasin inconnu';
