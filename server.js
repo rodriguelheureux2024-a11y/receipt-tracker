@@ -127,16 +127,17 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
       throw new Error('Réponse Mindee inattendue lors de la soumission');
     }
 
-    // ── Step 2: Poll until done ──
+    // ── Step 2: Poll until done (fast polling — job finishes in < 2s) ──
     let pollData;
-    for (let i = 0; i < 20; i++) {
-      await new Promise(r => setTimeout(r, 2000));
-      const url = pollingUrl || `https://api-v2.mindee.net/v2/jobs/${jobId}`;
-      const pollRes = await fetch(url, { headers: { 'Authorization': AUTH } });
+    const pollUrl = pollingUrl || `https://api-v2.mindee.net/v2/jobs/${jobId}`;
+    for (let i = 0; i < 40; i++) {
+      await new Promise(r => setTimeout(r, 500)); // poll every 500ms
+      const pollRes = await fetch(pollUrl, { headers: { 'Authorization': AUTH } });
       pollData = await pollRes.json();
       const status = pollData.job?.status;
-      console.log(`Poll ${i + 1}: status = ${status}`);
-      if (status && status !== 'Processing') break;
+      console.log(`Poll ${i+1} [${pollRes.status}]:`, JSON.stringify(pollData).slice(0, 300));
+      // Break on anything that's not "Processing" (including Done, or 404 if too late)
+      if (status !== 'Processing') break;
     }
 
     // ── Step 3: Log full response to understand structure ──
