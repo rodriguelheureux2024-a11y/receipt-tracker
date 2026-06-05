@@ -66,48 +66,96 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me', auth, (req, res) => res.json({ id: req.user.id, name: req.user.name, email: req.user.email }));
 
 /* ── RECEIPT PROMPT ── */
-const PROMPT = `You are a receipt scanner. Your job is simple: find every line that contains a product name and a price, then list them.
+const PROMPT = `You are a receipt scanner. Read the receipt image and output ONLY a JSON object.
 
-Return ONLY this JSON object (nothing else):
-{"store":"store name","date":"YYYY-MM-DD","total":0.00,"items":[{"name":"name as printed on receipt","price":0.00,"quantity":1,"category":"category"}]}
+{"store":"...","date":"YYYY-MM-DD","total":0.00,"items":[{"name":"...","price":0.00,"quantity":1,"category":"..."}]}
 
-━━━ GOLDEN RULES ━━━
-1. On every item line: the NUMBER ON THE RIGHT is ALWAYS the price for that item. Always.
-2. The number at the BOTTOM RIGHT of the receipt (next to "Total" or "TOTAL") is the grand total.
-3. Copy the product name EXACTLY as printed — do not change or expand abbreviations.
+━━━ GOLDEN RULES (memorize these) ━━━
+RULE 1: The number on the RIGHT side of a product line is ALWAYS the price. Always.
+RULE 2: The number at the BOTTOM RIGHT of the receipt (labeled "Total") is the grand total.
+RULE 3: Write product names EXACTLY as printed — never change or expand abbreviations.
+RULE 4: Include every product, even those with discounts shown below them.
 
-━━━ HOW TO FIND ITEMS ━━━
-A real item line looks like this:
-  PRODUCT NAME    $5.19 F
-  PRODUCT NAME    $10.49 F
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 1 — Store with tax codes and discounts (Target style)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Receipt text:
+  KASHI CEREAL        NF   $5.79    ← item, price = 5.79
+    Reg $6.99                       ← SKIP (old price)
+  CHOBANI YOGURT      NF   $1.00    ← item, price = 1.00
+    Reg $1.39                       ← SKIP
+    6for$6                          ← SKIP (promo)
+  CHOBANI YOGURT      NF   $3.00    ← item, price = 3.00
+    3 @ $1.00 ea                    ← quantity info: qty=3
+  LAURA LEAN BEEF     NF   $9.99    ← item, price = 9.99
+  SUBTOTAL                 $19.78   ← SKIP
+  NO TAX                    $0.00   ← SKIP
+  TOTAL                    $19.78   ← grand total
 
-The number on the RIGHT side of each item line = the price. Always trust the right-side number.
+Correct output:
+{"store":"Target","date":"2026-03-10","total":19.78,"items":[
+  {"name":"KASHI CEREAL","price":5.79,"quantity":1,"category":"Épicerie Sèche"},
+  {"name":"CHOBANI YOGURT","price":1.00,"quantity":1,"category":"Produits Laitiers"},
+  {"name":"CHOBANI YOGURT","price":3.00,"quantity":3,"category":"Produits Laitiers"},
+  {"name":"LAURA LEAN BEEF","price":9.99,"quantity":1,"category":"Viandes & Poissons"}
+]}
 
-━━━ LINES TO SKIP (not items) ━━━
-Skip any line that starts with or contains:
-• "Reg $" or "Regular Price" → just the original price before discount
-• "Savings" or "Save $" or "Total Savings" → discount amount
-• "Qty X lb @" or "Tare Weight" → weight details for the item above
-• "Subtotal" "Net Sales" "Total" "Paid" "VISA" "Sold Items" → receipt summary
-• Lines with only a number and no product name
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE 2 — Store with weight items and savings (Whole Foods style)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Receipt text:
+  NPA HERITAGE CRL OG      $5.19 F  ← item, price = 5.19
+  EDN OG WHL GRN MILLET    $4.02 F  ← item, price = 4.02 (it IS an item even with savings below)
+    Reg $5.29                        ← SKIP
+    Savings ($1.27)                  ← SKIP
+  BRM OG UNBLCHD WT FLOUR $10.49 F  ← item, price = 10.49
+  MSC ATLANTIC COD FILLET  $10.59 F ← item, price = 10.59
+    Qty 0.53 lb @ $19.99/lb          ← SKIP (weight detail, NOT a new item)
+  OG YELLOW ONION           $4.93 F ← item, price = 4.93
+    Qty 1.65 lb @ $2.99/lb           ← SKIP (1.65 is a WEIGHT not a price!)
+    Tare Weight 0.04 lb              ← SKIP
+  OG GARLIC                 $0.77 F ← item, price = 0.77
+    Qty 0.11 lb @ $6.99/lb           ← SKIP
+  OG GARLIC                 $1.12 F ← item, price = 1.12
+    Qty 0.16 lb @ $6.99/lb           ← SKIP
+  Subtotal                 $87.22   ← SKIP
+  Total Savings             -$2.72  ← SKIP
+  TOTAL                    $87.22   ← grand total
 
-━━━ SPECIAL CASES ━━━
-Weight items: the line "PRODUCT NAME $10.59 F" followed by "Qty 0.53 lb @ $19.99/lb"
-→ include the product with price 10.59. The "Qty X lb @" line below it is NOT a separate item.
+Correct output:
+{"store":"Whole Foods Market","date":"2026-03-10","total":87.22,"items":[
+  {"name":"NPA HERITAGE CRL OG","price":5.19,"quantity":1,"category":"Épicerie Sèche"},
+  {"name":"EDN OG WHL GRN MILLET","price":4.02,"quantity":1,"category":"Épicerie Sèche"},
+  {"name":"BRM OG UNBLCHD WT FLOUR","price":10.49,"quantity":1,"category":"Épicerie Sèche"},
+  {"name":"MSC ATLANTIC COD FILLET","price":10.59,"quantity":1,"category":"Viandes & Poissons"},
+  {"name":"OG YELLOW ONION","price":4.93,"quantity":1,"category":"Légumes"},
+  {"name":"OG GARLIC","price":0.77,"quantity":1,"category":"Légumes"},
+  {"name":"OG GARLIC","price":1.12,"quantity":1,"category":"Légumes"}
+]}
 
-Quantity items: "Qty 2 $3.49 ea" below an item → set quantity=2, price=6.98 (2×3.49)
-"3 @ $1.00 ea" → quantity=3, price=3.00
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LINES TO ALWAYS SKIP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"Reg $" | "Regular Price" | "Savings" | "Save $" | "Total Savings"
+"Qty X lb @" | "Tare Weight" | "Subtotal" | "Net Sales"
+"Total" | "Paid" | "VISA" | "Sold Items" | "Auth Code"
 
-━━━ CATEGORIES ━━━
-Pick the best match:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CATEGORIES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 "Fruits" | "Légumes" | "Viandes & Poissons" | "Produits Laitiers" | "Boulangerie & Pâtisserie" | "Boissons" | "Épicerie Sèche" | "Surgelés" | "Hygiène & Beauté" | "Entretien Maison" | "Santé" | "Snacks & Confiseries" | "Autres"
 
-Hints: FLOUR/GRAIN/CEREAL/PASTA/NUTS/ALMONDS/COUSCOUS/MILLET/TOFU/SEEDS → Épicerie Sèche
-COD/FISH/SALMON/BEEF/CHICKEN/FILLET → Viandes & Poissons
-ONION/GARLIC/TOMATO/GINGER/TOMATOES → Légumes
-ORANGE/APPLE/BERRY/FRUIT → Fruits
+FLOUR/GRAIN/CEREAL/PASTA/NUTS/ALMONDS/COUSCOUS/MILLET/TOFU/SEEDS/RICE → Épicerie Sèche
+COD/FISH/SALMON/BEEF/CHICKEN/MEAT/FILLET/TUNA → Viandes & Poissons
+ONION/GARLIC/TOMATO/GINGER/CARROT/LETTUCE/VEGETABLE → Légumes
+ORANGE/APPLE/BERRY/MANGO/GRAPE/BANANA/FRUIT → Fruits
+MILK/YOGURT/CHEESE/BUTTER/CREAM/EGG → Produits Laitiers
+WATER/JUICE/SODA/COFFEE/TEA/WINE/BEER → Boissons
+CHIPS/COOKIE/CHOCOLATE/CANDY/SNACK/CRACKER → Snacks & Confiseries
+SHAMPOO/SOAP/TOOTHPASTE/DEODORANT → Hygiène & Beauté
+DETERGENT/CLEANER/SPONGE/PAPER TOWEL → Entretien Maison
 
-Use date ${new Date().toISOString().split('T')[0]} if the receipt date is not visible.`;
+Use date ${new Date().toISOString().split('T')[0]} if not visible on receipt.`;
 
 /* ── ANALYZE ── */
 app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
