@@ -139,15 +139,29 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
       if (status && status !== 'Processing') break;
     }
 
-    // ── Step 3: Extract fields from result ──
+    // ── Step 3: Log full response to understand structure ──
+    const fullStr = JSON.stringify(pollData);
+    console.log('MINDEE FULL RESPONSE:', fullStr.slice(0, 2000));
+
+    // Try every possible path
     const result = pollData?.job?.inference?.result
+                || pollData?.job?.inference
+                || pollData?.job?.result?.inference?.result
                 || pollData?.job?.result
                 || pollData?.inference?.result
-                || pollData?.result;
+                || pollData?.inference
+                || pollData?.result
+                || pollData;
 
-    let fields = result?.fields || result?.prediction || result;
-    if (!fields || typeof fields !== 'object') {
-      console.error('Final poll data:', JSON.stringify(pollData).slice(0, 500));
+    let fields = result?.fields
+              || result?.prediction
+              || pollData?.job?.inference?.result?.fields
+              || pollData?.job?.result?.fields
+              || null;
+
+    if (!fields || typeof fields !== 'object' || Object.keys(fields).length === 0) {
+      console.error('Could not find fields. Keys at root:', Object.keys(pollData || {}));
+      console.error('Keys in job:', Object.keys(pollData?.job || {}));
       throw new Error('Impossible de récupérer les données du ticket');
     }
 
