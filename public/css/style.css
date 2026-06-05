@@ -1,5 +1,6 @@
 /* ══ RESET & TOKENS ══ */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
 :root{
   --green:#10b981;--green-d:#059669;--green-l:#ecfdf5;--green-ll:#f0fdf4;
   --indigo:#6366f1;--red:#ef4444;--amber:#f59e0b;
