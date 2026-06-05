@@ -72,35 +72,26 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me', auth, (req, res) => res.json({ id: req.user.id, name: req.user.name, email: req.user.email }));
 
 /* ── RECEIPT PROMPT ── */
-const PROMPT = `You are a receipt OCR expert. Analyze this receipt image carefully and return a JSON object.
+const PROMPT = `You are a receipt scanner. Look at the receipt image and extract every purchased item.
 
-RESPOND WITH VALID JSON ONLY — no markdown, no explanation.
+YOU MUST return a JSON object. Start your response with { and end with }.
 
-{
-  "store": "exact store name from receipt",
-  "date": "YYYY-MM-DD",
-  "total": 0.00,
-  "items": [
-    { "name": "product name", "price": 0.00, "quantity": 1, "category": "category" }
-  ]
-}
+Format:
+{"store":"store name","date":"YYYY-MM-DD","total":0.00,"items":[{"name":"product name","price":0.00,"quantity":1,"category":"category"}]}
 
-READING RULES:
-- Store name: look at the very top of the receipt (logo text, header)
-- Each item line has: [barcode] PRODUCT_NAME [tax_code] $PRICE
-- Tax codes after price (NF, F, T, N, WIC) = NOT part of the name, ignore them
-- "Regular Price $X.XX" lines = old price, NOT an item — skip
-- "Save $X" / "6for$X" / "Savings" / discount lines = NOT items — skip
-- "SUBTOTAL", "TAX", "TOTAL", "VISA", "AUTH CODE" = NOT items — skip
-- Quantity: "3 @ $1.00 ea" means quantity=3 and price=3.00 (total for the line)
+CRITICAL RULES:
+1. List EVERY product line on the receipt as a separate item in the "items" array
+2. DO NOT include: "Regular Price", "Save$", "Savings", "SUBTOTAL", "TAX", "TOTAL", "VISA", "AUTH CODE"
+3. Tax codes (NF, F, T, WIC) after a price are NOT product names — ignore them
+4. "3 @ $1.00 ea" = quantity:3, price:3.00
+5. If you see product lines, you MUST include them all — the items array must NOT be empty
 
-CATEGORIES (use exact text):
-"Fruits" | "Légumes" | "Viandes & Poissons" | "Produits Laitiers" | "Boulangerie & Pâtisserie" | "Boissons" | "Épicerie Sèche" | "Surgelés" | "Hygiène & Beauté" | "Entretien Maison" | "Santé" | "Snacks & Confiseries" | "Autres"
+Categories to use:
+"Fruits","Légumes","Viandes & Poissons","Produits Laitiers","Boulangerie & Pâtisserie","Boissons","Épicerie Sèche","Surgelés","Hygiène & Beauté","Entretien Maison","Santé","Snacks & Confiseries","Autres"
 
-BRAND GUIDE:
-KASHI=Épicerie Sèche | CHOBANI=Produits Laitiers | GO PASTA/BARILLA/PANZANI=Épicerie Sèche | LAURA'S LEAN/GROUND BEEF=Viandes & Poissons | SIMPLY/TROPICANA/OJ=Boissons | CHIPS/DORITOS/LAYS=Snacks & Confiseries | TIDE/DAWN/LYSOL=Entretien Maison | ADVIL/TYLENOL=Santé | YOGURT/MILK/CHEESE=Produits Laitiers | APPLE/BANANA/ORANGE=Fruits | CARROT/LETTUCE/TOMATO=Légumes
+Quick brand guide: KASHI/CHEERIOS=Épicerie Sèche | CHOBANI/YOPLAIT=Produits Laitiers | PASTA/RICE=Épicerie Sèche | BEEF/CHICKEN/SALMON=Viandes & Poissons | WATER/JUICE/SODA=Boissons | CHIPS/COOKIES=Snacks & Confiseries | SHAMPOO/SOAP=Hygiène & Beauté | DETERGENT=Entretien Maison
 
-Return today's date ${new Date().toISOString().split('T')[0]} if date not visible.`;
+Today is ${new Date().toISOString().split('T')[0]} (use as date if not visible on receipt).`;
 
 /* ── ANALYZE ── */
 app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
@@ -115,9 +106,8 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
 
     const response = await groq.chat.completions.create({
       model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-      max_tokens: 3000,
-      temperature: 0.1,
-      response_format: { type: 'json_object' },
+      max_tokens: 4096,
+      temperature: 0.05,
       messages: [{
         role: 'user',
         content: [
@@ -128,7 +118,23 @@ app.post('/api/analyze', auth, upload.single('image'), async (req, res) => {
     });
 
     let text = response.choices[0].message.content.trim();
-    const data = JSON.parse(text);
+
+    // Extract the JSON object from the response (ignore any surrounding text)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Réponse non valide — réessayez avec une photo plus nette');
+    const data = JSON.parse(jsonMatch[0]);
+
+    // Ensure items is an array
+    if (!Array.isArray(data.items)) data.items = [];
+
+    // If no items detected, throw a clear error
+    if (data.items.length === 0) {
+      throw new Error('Aucun article détecté. Assurez-vous que le ticket est bien éclairé et net.');
+    }
+
+    // Clean up items
+    data.items = data.items.filter(i => i.name && i.price > 0);
+
     res.json({ success: true, data });
   } catch (e) {
     console.error('analyze error:', e.message);
