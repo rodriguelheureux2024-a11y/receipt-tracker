@@ -17,9 +17,14 @@ const API = {
   me: () => API._req('/api/auth/me'),
 
   /* RECEIPTS */
-  analyze: imageBase64 =>
-    API._req('/api/analyze', { method: 'POST', body: JSON.stringify({ imageBase64 }) }),
-  save:    data => API._req('/api/receipts', { method: 'POST', body: JSON.stringify(data) }),
-  list:    ()   => API._req('/api/receipts'),
-  remove:  id   => API._req(`/api/receipts/${id}`, { method: 'DELETE' }),
+  analyze: async imageBase64 => {
+    const r = await API._req('/api/analyze', { method: 'POST', body: JSON.stringify({ imageBase64 }) });
+    return r.data; // unwrap nested { success, data: {...} }
+  },
+  save: async data => {
+    const r = await API._req('/api/receipts', { method: 'POST', body: JSON.stringify(data) });
+    return r.data; // unwrap nested { success, data: {...} }
+  },
+  list:   () => API._req('/api/receipts'),
+  remove: id => API._req(`/api/receipts/${id}`, { method: 'DELETE' }),
 };
