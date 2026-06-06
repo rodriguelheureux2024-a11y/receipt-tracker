@@ -162,36 +162,66 @@ function brandCategorize(name) {
   return null;
 }
 
-/* ── MISTRAL FALLBACK (tier gratuit) ── */
+/* ── MISTRAL CLASSIFICATION ── */
 const VALID_CATEGORIES = ['Fruits','Légumes','Viandes & Poissons','Produits Laitiers','Boulangerie & Pâtisserie','Boissons','Épicerie Sèche','Surgelés','Hygiène & Beauté','Entretien Maison','Santé','Snacks & Confiseries','Autres'];
+
+const MISTRAL_PROMPT = `You are an expert grocery store receipt classifier. Items can be brand names, abbreviated codes, or product descriptions in English, French, or any language.
+
+Categories: Fruits, Légumes, Viandes & Poissons, Produits Laitiers, Boulangerie & Pâtisserie, Boissons, Épicerie Sèche, Surgelés, Hygiène & Beauté, Entretien Maison, Santé, Snacks & Confiseries, Autres
+
+Classification examples:
+- "CHOBANI" → "Produits Laitiers" (yogurt brand)
+- "OIKOS" → "Produits Laitiers" (yogurt brand)
+- "KASHI" → "Épicerie Sèche" (cereal brand)
+- "NPA HERITAGE CRL OG" → "Épicerie Sèche" (Nature's Path organic cereal)
+- "BRM OG UNBLCHD WT" → "Épicerie Sèche" (Bob's Red Mill organic flour)
+- "EDN OG WHL GRN MILL" → "Épicerie Sèche" (Eden organic whole grain)
+- "365WFM OG ALMONDS" → "Épicerie Sèche" (Whole Foods organic almonds)
+- "SIMPLYBEVERG" or "SIMPLY" → "Boissons" (Simply beverages brand)
+- "CENTO" → "Épicerie Sèche" (Italian canned food brand)
+- "LAYS" or "DORITOS" → "Snacks & Confiseries"
+- "TIDE" or "GAIN" → "Entretien Maison" (detergent brands)
+- "DOVE" or "NIVEA" → "Hygiène & Beauté"
+- "POULET" or "BOEUF HACHE" → "Viandes & Poissons"
+- "LAIT 2%" or "FROMAGE" → "Produits Laitiers"
+- "PAIN" or "BAGUETTE" → "Boulangerie & Pâtisserie"
+- "JUS" or "EAU GAZEUSE" → "Boissons"
+- "BEYOND MEAT" → "Viandes & Poissons"
+- "OATLY" → "Boissons" (oat milk brand)
+
+Use "Autres" ONLY if truly impossible to classify.
+
+Items to classify:
+`;
 
 async function categorizeWithMistral(names) {
   const apiKey = (process.env.MISTRAL_API_KEY || '').trim();
-  if (!apiKey || !names.length) return names.map(() => 'Autres');
+  if (!apiKey || !names.length) return names.map(() => null);
   try {
     const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'mistral-small-latest',
-        max_tokens: 512,
+        max_tokens: 1024,
+        temperature: 0,
         messages: [{
           role: 'user',
-          content: `Classify each grocery store item into ONE of these categories:\n${VALID_CATEGORIES.join(', ')}\n\nItems:\n${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}\n\nReply ONLY with a valid JSON array of category strings, one per item, same order. No explanation.`
+          content: MISTRAL_PROMPT + names.map((n, i) => `${i + 1}. ${n}`).join('\n') + '\n\nReply ONLY with a valid JSON array of category strings, one per item, same order. No explanation.'
         }]
       })
     });
-    if (!res.ok) throw new Error(`Mistral ${res.status}`);
+    if (!res.ok) { console.warn(`Mistral ${res.status}: ${await res.text()}`); return names.map(() => null); }
     const data = await res.json();
     const text = data.choices[0].message.content.trim();
     const match = text.match(/\[[\s\S]*\]/);
     const parsed = JSON.parse(match ? match[0] : text);
     return Array.isArray(parsed)
-      ? parsed.map(c => VALID_CATEGORIES.includes(c) ? c : 'Autres')
-      : names.map(() => 'Autres');
+      ? parsed.map(c => VALID_CATEGORIES.includes(c) ? c : null)
+      : names.map(() => null);
   } catch (e) {
-    console.warn('Mistral fallback failed:', e.message);
-    return names.map(() => 'Autres');
+    console.warn('Mistral failed:', e.message);
+    return names.map(() => null);
   }
 }
 
@@ -273,16 +303,18 @@ async function analyzeOneImage(imgBuffer) {
       name:     i.fields.description.value.trim(),
       price:    parseFloat(i.fields.total_price?.value ?? i.fields.unit_price?.value ?? 0) || 0,
       quantity: parseFloat(i.fields.quantity?.value ?? 1) || 1,
-      category: categorize(i.fields.description.value),
+      category: 'Autres',
     }))
     .filter(i => i.name.length > 0);
 
-  // Mistral fallback pour les articles encore non reconnus
-  const uncategorized = items.filter(i => i.category === 'Autres');
-  if (uncategorized.length > 0) {
-    const aiCats = await categorizeWithMistral(uncategorized.map(i => i.name));
-    uncategorized.forEach((item, idx) => { item.category = aiCats[idx] || 'Autres'; });
-    console.log(`🤖 Mistral a classifié ${uncategorized.length} articles`);
+  // 1. Mistral classifie TOUS les articles en une seule requête
+  if (items.length > 0) {
+    const aiCats = await categorizeWithMistral(items.map(i => i.name));
+    items.forEach((item, idx) => {
+      item.category = aiCats[idx] || categorize(item.name);
+    });
+    const aiCount = aiCats.filter(c => c !== null).length;
+    console.log(`🤖 Mistral: ${aiCount}/${items.length} articles classifiés`);
   }
 
   return { store, date, total, tax, items };
