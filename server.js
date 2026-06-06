@@ -7,6 +7,7 @@ const jwt       = require('jsonwebtoken');
 const fs        = require('fs');
 const path      = require('path');
 const crypto    = require('crypto');
+const Anthropic = require('@anthropic-ai/sdk');
 
 const app    = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -52,6 +53,40 @@ function categorize(name = '') {
   if (/VITAMIN|SUPPLEMENT|MEDICINE|TABLET|CAPSULE|ADVIL|TYLENOL|IBUPROFEN|ASPIRIN|BANDAGE|VITAMINE|MEDICAMENT|MÉDICAMENT|COMPRIME|COMPRIMÉ/.test(n)) return 'Santé';
   if (/CHIP|COOKIE|CHOCOLATE|CANDY|SNACK|CRACKER|PRETZEL|POPCORN|GRANOLA BAR|BROWNIE|GUMMY|MARSHMALLOW|CROUSTILLE|BISCUIT|CHOCOLAT|BONBON|COLLATION|CHIPS|GUIMAUVE/.test(n)) return 'Snacks & Confiseries';
   return 'Autres';
+}
+
+/* ── AI CATEGORIZATION FALLBACK ── */
+const VALID_CATEGORIES = ['Fruits','Légumes','Viandes & Poissons','Produits Laitiers','Boulangerie & Pâtisserie','Boissons','Épicerie Sèche','Surgelés','Hygiène & Beauté','Entretien Maison','Santé','Snacks & Confiseries','Autres'];
+
+async function categorizeWithAI(names) {
+  const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim();
+  if (!apiKey || !names.length) return names.map(() => 'Autres');
+  try {
+    const client = new Anthropic({ apiKey });
+    const msg = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: `Classify each grocery item into ONE of these categories:
+${VALID_CATEGORIES.join(', ')}
+
+Items:
+${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}
+
+Reply ONLY with a valid JSON array of category strings, one per item, same order. No explanation.`
+      }]
+    });
+    const text = msg.content[0].text.trim();
+    const match = text.match(/\[[\s\S]*\]/);
+    const parsed = JSON.parse(match ? match[0] : text);
+    return Array.isArray(parsed)
+      ? parsed.map(c => VALID_CATEGORIES.includes(c) ? c : 'Autres')
+      : names.map(() => 'Autres');
+  } catch (e) {
+    console.warn('AI categorization failed:', e.message);
+    return names.map(() => 'Autres');
+  }
 }
 
 /* ── AUTH ROUTES ── */
@@ -135,6 +170,14 @@ async function analyzeOneImage(imgBuffer) {
       category: categorize(i.fields.description.value),
     }))
     .filter(i => i.name.length > 0);
+
+  // AI fallback for items not matched by keywords
+  const uncategorized = items.filter(i => i.category === 'Autres');
+  if (uncategorized.length > 0) {
+    const aiCats = await categorizeWithAI(uncategorized.map(i => i.name));
+    uncategorized.forEach((item, idx) => { item.category = aiCats[idx] || 'Autres'; });
+    console.log(`🤖 AI classified ${uncategorized.length} items`);
+  }
 
   return { store, date, total, tax, items };
 }
