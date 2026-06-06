@@ -313,39 +313,6 @@ app.post('/api/analyze', auth, async (req, res) => {
     let tax   = bestResult.tax || 0;
     let items = results.flatMap(r => r.items);
 
-    // Smart deduplication for overlapping photos
-    // Two items are duplicates if: same price AND (same name OR one name contains the other OR very similar names)
-    function editDistance(a, b) {
-      const m = [], al = a.length, bl = b.length;
-      for (let i = 0; i <= bl; i++) m[i] = [i];
-      for (let j = 0; j <= al; j++) m[0][j] = j;
-      for (let i = 1; i <= bl; i++)
-        for (let j = 1; j <= al; j++)
-          m[i][j] = b[i-1] === a[j-1] ? m[i-1][j-1] : Math.min(m[i-1][j-1], m[i][j-1], m[i-1][j]) + 1;
-      return m[bl][al];
-    }
-
-    function isDuplicate(a, b) {
-      if (Math.abs(a.price - b.price) > 0.01) return false; // prix différent = article différent
-      const na = a.name.toUpperCase().trim();
-      const nb = b.name.toUpperCase().trim();
-      if (na === nb) return true; // nom identique exact
-
-      // Troncature : un nom est le début de l'autre (photo mal cadrée)
-      // Condition : le nom court doit faire au moins 10 chars pour éviter les faux positifs
-      const [shorter, longer] = na.length <= nb.length ? [na, nb] : [nb, na];
-      if (shorter.length >= 10 && longer.startsWith(shorter)) return true;
-
-      // Très proche (variance OCR, 1-2 caractères) — seulement si noms longs (≥8 chars)
-      if (na.length >= 8 && nb.length >= 8 && editDistance(na, nb) <= 2) return true;
-
-      return false;
-    }
-
-    items = items.filter((item, idx) =>
-      !items.slice(0, idx).some(prev => isDuplicate(prev, item))
-    );
-
     if (items.length === 0) {
       return res.status(422).json({ success: false, error: 'Aucun article détecté. Assurez-vous que les articles sont visibles sur la photo.' });
     }
