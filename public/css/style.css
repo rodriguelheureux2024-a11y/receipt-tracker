@@ -149,6 +149,9 @@ body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg);color:var
 .edit-add-row{padding:10px 14px;border-top:1px dashed var(--border)}
 .btn-sm{padding:5px 12px;font-size:13px}
 
+.res-tax-bar{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:10px 22px;display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;color:var(--muted)}
+.res-tax-bar span{font-size:13px;font-weight:500}
+.res-tax-bar strong{font-size:16px;font-weight:700}
 .res-total-bar{background:linear-gradient(135deg,var(--green),var(--green-d));border-radius:var(--r);padding:16px 22px;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;color:#fff}
 .res-total-bar span{font-size:14px;font-weight:500;opacity:.9}
 .res-total-bar strong{font-size:28px;font-weight:800}

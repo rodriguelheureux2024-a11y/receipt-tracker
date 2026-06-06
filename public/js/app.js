@@ -200,9 +200,19 @@ const App = {
   },
 
   _refreshTotal() {
-    const total = (this._editData.items || []).reduce((s, i) => s + (parseFloat(i.price) || 0), 0);
-    this._editData.total = Math.round(total * 100) / 100;
+    const itemSum = (this._editData.items || []).reduce((s, i) => s + (parseFloat(i.price) || 0), 0);
+    const tax = parseFloat(this._editData.tax) || 0;
+    this._editData.total = Math.round((itemSum + tax) * 100) / 100;
     document.getElementById('rTotal').textContent = this._editData.total.toFixed(2) + ' €';
+    const taxBar = document.getElementById('resTaxBar');
+    if (taxBar) {
+      if (tax > 0) {
+        document.getElementById('rTax').textContent = tax.toFixed(2) + ' €';
+        taxBar.hidden = false;
+      } else {
+        taxBar.hidden = true;
+      }
+    }
   },
 
   _renderEditRows() {
