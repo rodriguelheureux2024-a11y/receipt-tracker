@@ -7,7 +7,6 @@ const jwt       = require('jsonwebtoken');
 const fs        = require('fs');
 const path      = require('path');
 const crypto    = require('crypto');
-const Anthropic = require('@anthropic-ai/sdk');
 
 const app    = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -39,6 +38,8 @@ function auth(req, res, next) {
 
 /* ── CATEGORIZATION ── */
 function categorize(name = '') {
+  const brand = brandCategorize(name);
+  if (brand) return brand;
   const n = name.toUpperCase();
   if (/APPLE|BANANA|ORANGE|BERRY|GRAPE|MANGO|PEACH|PEAR|PLUM|CHERRY|LEMON|LIME|MELON|KIWI|PINEAPPLE|APRICOT|CARA CARA|CLEMENTINE|TANGERINE|GRAPEFRUIT|POMELO|JACKFRUIT|PAPAYA|GUAVA|PASSION FRUIT|POMME|BANANE|FRAISE|FRAMBOISE|BLEUET|RAISIN|MANGUE|PECHE|PÊCHE|POIRE|PRUNE|CERISE|CITRON|ANANAS|ABRICOT|CLEMENTINE|CLÉMENTINE|PAMPLEMOUSSE|CANTALOUP|PASTEQUE|PASTÈQUE/.test(n)) return 'Fruits';
   if (/ONION|GARLIC|TOMATO|CARROT|LETTUCE|SPINACH|BROCCOLI|PEPPER|GINGER|POTATO|MUSHROOM|ZUCCHINI|CELERY|KALE|CUCUMBER|CABBAGE|CAULIFLOWER|ASPARAGUS|BEET|RADISH|TURNIP|YAM|SQUASH|FENNEL|LEEK|ARUGULA|CHARD|ARTICHOKE|WATERCRESS|ENDIVE|OIGNON|TOMATE|CAROTTE|LAITUE|EPINARD|ÉPINARD|BROCOLI|POIVRON|GINGEMBRE|PATATE|CHAMPIGNON|COURGETTE|CELERI|CÉLERI|CHOU|CONCOMBRE|ASPERGE|BETTERAVE|RADIS|NAVET|COURGE|FENOUIL|POIREAU|ROQUETTE|ARTICHAUT|MAIS|MAÏS/.test(n)) return 'Légumes';
@@ -55,38 +56,88 @@ function categorize(name = '') {
   return 'Autres';
 }
 
-/* ── AI CATEGORIZATION FALLBACK ── */
-const VALID_CATEGORIES = ['Fruits','Légumes','Viandes & Poissons','Produits Laitiers','Boulangerie & Pâtisserie','Boissons','Épicerie Sèche','Surgelés','Hygiène & Beauté','Entretien Maison','Santé','Snacks & Confiseries','Autres'];
+/* ── BRAND DATABASE (gratuit, aucune API) ── */
+const BRAND_MAP = {
+  // Produits Laitiers
+  'CHOBANI':'Produits Laitiers','DANONE':'Produits Laitiers','ACTIVIA':'Produits Laitiers',
+  'OIKOS':'Produits Laitiers','LIBERTE':'Produits Laitiers','LIBERTÉ':'Produits Laitiers',
+  'YOPLAIT':'Produits Laitiers','SIGGI':'Produits Laitiers','FAGE':'Produits Laitiers',
+  'STONEYFIELD':'Produits Laitiers','BEATRICE':'Produits Laitiers','NATREL':'Produits Laitiers',
+  'LACTANTIA':'Produits Laitiers','PHILADELPHIA':'Produits Laitiers','BABYBEL':'Produits Laitiers',
+  'BOURSIN':'Produits Laitiers','PRÉSIDENT':'Produits Laitiers','PRESIDENT':'Produits Laitiers',
+  'ARMSTRONG':'Produits Laitiers','BALDERSON':'Produits Laitiers','CRACKER BARREL':'Produits Laitiers',
+  // Boissons
+  'SIMPLY':'Boissons','SIMPLYBEVERG':'Boissons','TROPICANA':'Boissons','MINUTE MAID':'Boissons',
+  'GATORADE':'Boissons','POWERADE':'Boissons','ARIZONA':'Boissons','SNAPPLE':'Boissons',
+  'RED BULL':'Boissons','MONSTER':'Boissons','ROCKSTAR':'Boissons',
+  'NESPRESSO':'Boissons','STARBUCKS':'Boissons','LIPTON':'Boissons','NESTEA':'Boissons',
+  'PERRIER':'Boissons','EVIAN':'Boissons','DASANI':'Boissons','SMARTWATER':'Boissons',
+  'CERES':'Boissons','OASIS':'Boissons','CLAMATO':'Boissons','V8':'Boissons',
+  'BIGELOW':'Boissons','CELESTIAL':'Boissons','TETLEY':'Boissons','NABOB':'Boissons',
+  'FOLGERS':'Boissons','MAXWELL':'Boissons','TIM HORTONS':'Boissons',
+  // Épicerie Sèche
+  'KASHI':'Épicerie Sèche','KELLOGG':'Épicerie Sèche','QUAKER':'Épicerie Sèche',
+  'GENERAL MILLS':'Épicerie Sèche','CHEERIOS':'Épicerie Sèche','POST':'Épicerie Sèche',
+  'CENTO':'Épicerie Sèche','HEINZ':'Épicerie Sèche','CAMPBELL':'Épicerie Sèche',
+  'PROGRESSO':'Épicerie Sèche','DOLE':'Épicerie Sèche','DEL MONTE':'Épicerie Sèche',
+  'CLASSICO':'Épicerie Sèche','RAGU':'Épicerie Sèche','PREGO':'Épicerie Sèche',
+  'BARILLA':'Épicerie Sèche','CATELLI':'Épicerie Sèche','RIZONI':'Épicerie Sèche',
+  'UNCLE BEN':'Épicerie Sèche','KNORR':'Épicerie Sèche','MAGGI':'Épicerie Sèche',
+  'PRESIDENT CHOICE':'Épicerie Sèche','PC':'Épicerie Sèche','STORE BRAND':'Épicerie Sèche',
+  'SKIPPY':'Épicerie Sèche','JIF':'Épicerie Sèche','SMUCKER':'Épicerie Sèche',
+  'HELLMANN':'Épicerie Sèche','KRAFT':'Épicerie Sèche','FRENCH':'Épicerie Sèche',
+  'OLD EL PASO':'Épicerie Sèche','TACO BELL':'Épicerie Sèche','ORTEGA':'Épicerie Sèche',
+  'COCONUT':'Épicerie Sèche','SILK':'Épicerie Sèche','BLUE DIAMOND':'Épicerie Sèche',
+  // Viandes & Poissons
+  'MAPLE LEAF':'Viandes & Poissons','SCHNEIDERS':'Viandes & Poissons','OLYMEL':'Viandes & Poissons',
+  'BUTTERBALL':'Viandes & Poissons','OSCAR MAYER':'Viandes & Poissons','JOHNSONVILLE':'Viandes & Poissons',
+  'BUMBLE BEE':'Viandes & Poissons','STARKIST':'Viandes & Poissons','CHICKEN OF THE SEA':'Viandes & Poissons',
+  'HIGH LINER':'Viandes & Poissons','GORTON':'Viandes & Poissons',
+  // Snacks & Confiseries
+  'LAYS':'Snacks & Confiseries','LAY\'S':'Snacks & Confiseries','DORITOS':'Snacks & Confiseries',
+  'PRINGLES':'Snacks & Confiseries','RUFFLES':'Snacks & Confiseries','CHEETOS':'Snacks & Confiseries',
+  'OREO':'Snacks & Confiseries','CHIPS AHOY':'Snacks & Confiseries','RITZ':'Snacks & Confiseries',
+  'TRISCUIT':'Snacks & Confiseries','KIND':'Snacks & Confiseries','CLIF':'Snacks & Confiseries',
+  'REESE':'Snacks & Confiseries','SNICKERS':'Snacks & Confiseries','MARS':'Snacks & Confiseries',
+  'KITKAT':'Snacks & Confiseries','KIT KAT':'Snacks & Confiseries','TWIX':'Snacks & Confiseries',
+  'HERSHEY':'Snacks & Confiseries','LINDT':'Snacks & Confiseries','TOBLERONE':'Snacks & Confiseries',
+  'FERRERO':'Snacks & Confiseries','NUTELLA':'Snacks & Confiseries','PEPPERIDGE':'Snacks & Confiseries',
+  'GOLDFISH':'Snacks & Confiseries','PLANTERS':'Snacks & Confiseries','NATURE VALLEY':'Snacks & Confiseries',
+  'GRANOLA BAR':'Snacks & Confiseries','CRISPERS':'Snacks & Confiseries','OLD DUTCH':'Snacks & Confiseries',
+  // Boulangerie & Pâtisserie
+  'WONDER':'Boulangerie & Pâtisserie','DEMPSTER':'Boulangerie & Pâtisserie','VILLAGGIO':'Boulangerie & Pâtisserie',
+  'SILVER HILLS':'Boulangerie & Pâtisserie','DAVE\'S':'Boulangerie & Pâtisserie','THOMAS':'Boulangerie & Pâtisserie',
+  'PEPPERIDGE FARM':'Boulangerie & Pâtisserie','ARNOLD':'Boulangerie & Pâtisserie',
+  // Surgelés
+  'MCCAIN':'Surgelés','BIRD EYE':'Surgelés','BIRDSEYE':'Surgelés','STOUFFER':'Surgelés',
+  'LEAN CUISINE':'Surgelés','HEALTHY CHOICE':'Surgelés','SWANSON':'Surgelés',
+  'AMY\'S':'Surgelés','AMYS':'Surgelés','MORNING STAR':'Surgelés','GARDEIN':'Surgelés',
+  // Hygiène & Beauté
+  'DOVE':'Hygiène & Beauté','NIVEA':'Hygiène & Beauté','OLAY':'Hygiène & Beauté',
+  'NEUTROGENA':'Hygiène & Beauté','PANTENE':'Hygiène & Beauté','HEAD & SHOULDERS':'Hygiène & Beauté',
+  'GARNIER':'Hygiène & Beauté','LOREAL':'Hygiène & Beauté','L\'OREAL':'Hygiène & Beauté',
+  'COLGATE':'Hygiène & Beauté','CREST':'Hygiène & Beauté','GILLETTE':'Hygiène & Beauté',
+  'SCHICK':'Hygiène & Beauté','AXE':'Hygiène & Beauté','OLD SPICE':'Hygiène & Beauté',
+  'SPEED STICK':'Hygiène & Beauté','DEGREE':'Hygiène & Beauté','SECRET':'Hygiène & Beauté',
+  'CETAPHIL':'Hygiène & Beauté','AVEENO':'Hygiène & Beauté','VASELINE':'Hygiène & Beauté',
+  // Entretien Maison
+  'TIDE':'Entretien Maison','GAIN':'Entretien Maison','DOWNY':'Entretien Maison',
+  'BOUNCE':'Entretien Maison','LYSOL':'Entretien Maison','AJAX':'Entretien Maison',
+  'MR CLEAN':'Entretien Maison','WINDEX':'Entretien Maison','PLEDGE':'Entretien Maison',
+  'BOUNTY':'Entretien Maison','CHARMIN':'Entretien Maison','SCOTTIES':'Entretien Maison',
+  'GLAD':'Entretien Maison','ZIPLOC':'Entretien Maison','CASCADE':'Entretien Maison',
+  'DAWN':'Entretien Maison','PALMOLIVE':'Entretien Maison','SUNLIGHT':'Entretien Maison',
+  // Santé
+  'CENTRUM':'Santé','NATURE MADE':'Santé','JAMIESON':'Santé','VICKS':'Santé',
+  'HALLS':'Santé','PEPTO':'Santé','TUMS':'Santé','ROLAIDS':'Santé',
+};
 
-async function categorizeWithAI(names) {
-  const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim();
-  if (!apiKey || !names.length) return names.map(() => 'Autres');
-  try {
-    const client = new Anthropic({ apiKey });
-    const msg = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      messages: [{
-        role: 'user',
-        content: `Classify each grocery item into ONE of these categories:
-${VALID_CATEGORIES.join(', ')}
-
-Items:
-${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}
-
-Reply ONLY with a valid JSON array of category strings, one per item, same order. No explanation.`
-      }]
-    });
-    const text = msg.content[0].text.trim();
-    const match = text.match(/\[[\s\S]*\]/);
-    const parsed = JSON.parse(match ? match[0] : text);
-    return Array.isArray(parsed)
-      ? parsed.map(c => VALID_CATEGORIES.includes(c) ? c : 'Autres')
-      : names.map(() => 'Autres');
-  } catch (e) {
-    console.warn('AI categorization failed:', e.message);
-    return names.map(() => 'Autres');
+function brandCategorize(name) {
+  const n = name.toUpperCase().trim().replace(/['']/g, "'");
+  for (const [brand, cat] of Object.entries(BRAND_MAP)) {
+    if (n === brand || n.startsWith(brand + ' ') || n.startsWith(brand + '-')) return cat;
   }
+  return null;
 }
 
 /* ── AUTH ROUTES ── */
@@ -170,14 +221,6 @@ async function analyzeOneImage(imgBuffer) {
       category: categorize(i.fields.description.value),
     }))
     .filter(i => i.name.length > 0);
-
-  // AI fallback for items not matched by keywords
-  const uncategorized = items.filter(i => i.category === 'Autres');
-  if (uncategorized.length > 0) {
-    const aiCats = await categorizeWithAI(uncategorized.map(i => i.name));
-    uncategorized.forEach((item, idx) => { item.category = aiCats[idx] || 'Autres'; });
-    console.log(`🤖 AI classified ${uncategorized.length} items`);
-  }
 
   return { store, date, total, tax, items };
 }
