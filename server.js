@@ -140,6 +140,39 @@ function brandCategorize(name) {
   return null;
 }
 
+/* ── MISTRAL FALLBACK (tier gratuit) ── */
+const VALID_CATEGORIES = ['Fruits','Légumes','Viandes & Poissons','Produits Laitiers','Boulangerie & Pâtisserie','Boissons','Épicerie Sèche','Surgelés','Hygiène & Beauté','Entretien Maison','Santé','Snacks & Confiseries','Autres'];
+
+async function categorizeWithMistral(names) {
+  const apiKey = (process.env.MISTRAL_API_KEY || '').trim();
+  if (!apiKey || !names.length) return names.map(() => 'Autres');
+  try {
+    const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'mistral-small-latest',
+        max_tokens: 512,
+        messages: [{
+          role: 'user',
+          content: `Classify each grocery store item into ONE of these categories:\n${VALID_CATEGORIES.join(', ')}\n\nItems:\n${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}\n\nReply ONLY with a valid JSON array of category strings, one per item, same order. No explanation.`
+        }]
+      })
+    });
+    if (!res.ok) throw new Error(`Mistral ${res.status}`);
+    const data = await res.json();
+    const text = data.choices[0].message.content.trim();
+    const match = text.match(/\[[\s\S]*\]/);
+    const parsed = JSON.parse(match ? match[0] : text);
+    return Array.isArray(parsed)
+      ? parsed.map(c => VALID_CATEGORIES.includes(c) ? c : 'Autres')
+      : names.map(() => 'Autres');
+  } catch (e) {
+    console.warn('Mistral fallback failed:', e.message);
+    return names.map(() => 'Autres');
+  }
+}
+
 /* ── AUTH ROUTES ── */
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -221,6 +254,14 @@ async function analyzeOneImage(imgBuffer) {
       category: categorize(i.fields.description.value),
     }))
     .filter(i => i.name.length > 0);
+
+  // Mistral fallback pour les articles encore non reconnus
+  const uncategorized = items.filter(i => i.category === 'Autres');
+  if (uncategorized.length > 0) {
+    const aiCats = await categorizeWithMistral(uncategorized.map(i => i.name));
+    uncategorized.forEach((item, idx) => { item.category = aiCats[idx] || 'Autres'; });
+    console.log(`🤖 Mistral a classifié ${uncategorized.length} articles`);
+  }
 
   return { store, date, total, tax, items };
 }
