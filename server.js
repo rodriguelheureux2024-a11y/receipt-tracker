@@ -299,12 +299,23 @@ async function analyzeOneImage(imgBuffer) {
   const tax = totalTax > 0 ? totalTax : Math.max(0, Math.round((totalAmt - totalNet) * 100) / 100);
   const items = (fields.line_items?.items || [])
     .filter(i => i.fields?.description?.value?.trim())
-    .map(i => ({
-      name:     i.fields.description.value.trim(),
-      price:    parseFloat(i.fields.total_price?.value ?? i.fields.unit_price?.value ?? 0) || 0,
-      quantity: parseFloat(i.fields.quantity?.value ?? 1) || 1,
-      category: 'Autres',
-    }))
+    .map(i => {
+      const totalPrice = parseFloat(i.fields.total_price?.value ?? 0) || 0;
+      const unitPrice  = parseFloat(i.fields.unit_price?.value  ?? 0) || 0;
+      const qty        = parseFloat(i.fields.quantity?.value    ?? 1) || 1;
+      // Priorité : total_price > unit_price × qty > unit_price
+      const price = totalPrice > 0
+        ? totalPrice
+        : unitPrice > 0 && qty > 1
+          ? Math.round(unitPrice * qty * 100) / 100
+          : unitPrice;
+      return {
+        name:     i.fields.description.value.trim(),
+        price,
+        quantity: qty,
+        category: 'Autres',
+      };
+    })
     .filter(i => i.name.length > 0);
 
   // 1. Mistral classifie TOUS les articles en une seule requête
